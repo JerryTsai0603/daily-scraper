@@ -375,7 +375,7 @@ async def run_scraper():
                         parts = video_title.split()
                         actress_name = parts[-1].strip() if parts else "未知"
 
-                        # 🎯 抓取網頁中帶有 class 的 h5 標籤作為 Tags，並排除提示文字
+                        # 🎯 嚴格要求：從網頁內 h5 class 的 Tags 抓取，並過濾系統提示文字
                         h5_tags_with_class = detail_soup.select('h5[class]')
                         tags_list = []
                         for h in h5_tags_with_class:
@@ -387,6 +387,7 @@ async def run_scraper():
                         tags_str = ", ".join(tags_list)
                         combined_text = f"{video_title} {tags_str}"
 
+                        # 🎯 必須符合關鍵字條件才予以收錄
                         if any(kw in combined_text for kw in keywords):
                             if save_video(video_title, cover_image_url, tags_str, actress_name, video_url):
                                 newly_added_videos.append({
