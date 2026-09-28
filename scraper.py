@@ -144,16 +144,11 @@ def generate_index_html():
 
     actress_options = "".join([f'<option value="{act.lower()}">{act}</option>' for act in sorted(all_actresses)])
     
-    # 動態產生分類與標籤的複選框清單
-    default_tags = ["絲襪", "黑絲", "白絲", "肉絲", "網襪", "足交", "腳交", "舔腳"]
-    for t in all_tags_set:
-        if t not in default_tags:
-            default_tags.append(t)
-            
+    # 動態產生從 h5 class 抓取到的標籤複選框
     checkboxes_html = "".join([
         f'<label class="checkbox-label"><input type="checkbox" name="keyword" value="{tag}"> {tag}</label>' 
-        for tag in default_tags
-    ])
+        for tag in sorted(all_tags_set)
+    ]) if all_tags_set else '<span style="color: #94a3b8; font-size: 0.85rem;">尚無標籤資料</span>'
 
     html_content = f"""<!DOCTYPE html>
 <html lang="zh-TW">
@@ -173,7 +168,7 @@ def generate_index_html():
         .filter-item {{ display: flex; align-items: center; gap: 8px; }}
         .filter-item label {{ font-size: 0.85rem; color: #94a3b8; }}
         .filter-item select {{ background: #0f172a; border: 1px solid #334155; color: #f1f5f9; padding: 8px 12px; border-radius: 6px; font-size: 0.85rem; outline: none; }}
-        .checkbox-container {{ display: flex; flex-wrap: wrap; gap: 12px; align-items: center; background: #0f172a; padding: 10px 14px; border-radius: 6px; border: 1px solid #334155; max-height: 120px; overflow-y: auto; }}
+        .checkbox-container {{ display: flex; flex-wrap: wrap; gap: 12px; align-items: center; background: #0f172a; padding: 10px 14px; border-radius: 6px; border: 1px solid #334155; max-height: 140px; overflow-y: auto; flex-grow: 1; }}
         .checkbox-label {{ font-size: 0.85rem; color: #cbd5e1; display: flex; align-items: center; gap: 4px; cursor: pointer; }}
         .checkbox-label input {{ cursor: pointer; }}
         .reset-btn {{ background: #475569; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 0.85rem; }}
@@ -203,8 +198,8 @@ def generate_index_html():
         <div class="filter-row">
             <div class="filter-group">
                 <div class="filter-item" style="width: 100%;">
-                    <label style="min-width: 90px;">Categories & Tags 複選:</label>
-                    <div class="checkbox-container" style="flex-grow: 1;">
+                    <label style="min-width: 80px;">Tags 複選:</label>
+                    <div class="checkbox-container">
                         {checkboxes_html}
                     </div>
                 </div>
@@ -255,7 +250,7 @@ def generate_index_html():
                 const actress = card.getAttribute('data-actress') || '';
                 const tags = card.getAttribute('data-tags') || '';
                 
-                const matchKeyword = selectedKeywords.length === 0 || selectedKeywords.some(kw => title.includes(kw) || tags.includes(kw));
+                const matchKeyword = selectedKeywords.length === 0 || selectedKeywords.some(kw => tags.includes(kw));
                 const matchActress = !actressVal || actress.includes(actressVal);
 
                 if (matchKeyword && matchActress) {{
@@ -382,26 +377,18 @@ async def run_scraper():
                         parts = video_title.split()
                         actress_name = parts[-1].strip() if parts else "未知"
 
-                        # 🎯 從網頁的 categories 與 tags 區域精準抓取關鍵字/標籤
-                        tags_list = []
-                        # 抓取分類連結 (categories) 與標籤連結 (tags)
-                        tag_elements = detail_soup.select('a[href*="/categories/"], a[href*="/tags/"]')
-                        for tag_el in tag_elements:
-                            t_name = tag_el.get('data-original-title') or tag_el.text
-                            if t_name and t_name.strip():
-                                clean_t = t_name.strip()
-                                if clean_t not in tags_list:
-                                    tags_list.append(clean_t)
+                        # 🎯 精準抓取網頁中帶有 class 的 h5 標籤作為 Tags
+                        h5_tags_with_class = detail_soup.select('h5[class]')
+                        tags_list = [h.text.strip() for h in h5_tags_with_class if h.text.strip()]
                         
-                        # 備用：若找不到專屬標籤連結，則退回原本的 h5 標籤
+                        # 備用：若找不到帶 class 的 h5，則抓取所有 h5
                         if not tags_list:
                             h5_tags = detail_soup.find_all('h5')
                             tags_list = [h.text.strip() for h in h5_tags if h.text.strip()]
 
                         tags_str = ", ".join(tags_list)
-
-                        # 判斷是否符合過濾關鍵字
                         combined_text = f"{video_title} {tags_str}"
+
                         if any(kw in combined_text for kw in keywords):
                             if save_video(video_title, cover_image_url, tags_str, actress_name, video_url):
                                 newly_added_videos.append({
