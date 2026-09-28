@@ -27,7 +27,6 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
-    # 確保舊資料庫平滑升級 actress 欄位
     cursor.execute("PRAGMA table_info(videos)")
     columns = [col[1] for col in cursor.fetchall()]
     if "actress" not in columns:
@@ -57,25 +56,25 @@ def get_all_videos():
     return rows
 
 def generate_index_html():
-    """讀取資料庫並產生具備篩選功能的 index.html"""
+    """從資料庫動態產出包含即時內容與篩選器的 index.html"""
     videos = get_all_videos()
     
-    # 整理所有不重複的女優名稱供下拉選單使用
     all_actresses = set()
     cards_html = ""
     for v in videos:
         vid_id, title, cover_url, tags, actress, video_url, created_at = v
-        actress_display = actress if actress else "未知/多人"
+        actress_display = actress.strip() if actress and actress.strip() else "未知/多人"
         if actress:
             for act in actress.split():
                 if act.strip():
                     all_actresses.add(act.strip())
 
         date_str = created_at[:10] if created_at else ""
+        cover_img = cover_url if cover_url else "https://via.placeholder.com/300x180?text=No+Cover"
 
         cards_html += f"""
         <div class="card" data-title="{title.lower()}" data-actress="{actress_display.lower()}" data-tags="{(tags or '').lower()}" data-date="{date_str}">
-            <img src="{cover_url or 'https://via.placeholder.com/300x180?text=No+Cover'}" alt="封面" loading="lazy" referrerpolicy="no-referrer">
+            <img src="{cover_img}" alt="封面" loading="lazy" referrerpolicy="no-referrer">
             <div class="card-body">
                 <div class="title" title="{title}">{title}</div>
                 <div class="meta-row">
@@ -97,7 +96,7 @@ def generate_index_html():
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Jable 影片庫 - 智慧篩選</title>
+    <title>Jable 影片典藏庫 - 智慧篩選</title>
     <style>
         * {{ box-sizing: border-box; margin: 0; padding: 0; }}
         body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background-color: #0b0f19; color: #f8fafc; padding: 24px 16px; }}
@@ -105,7 +104,6 @@ def generate_index_html():
         .header h1 {{ font-size: 1.8rem; color: #38bdf8; margin-bottom: 6px; }}
         .header p {{ color: #94a3b8; font-size: 0.9rem; }}
 
-        /* 篩選器控制面板 */
         .filter-panel {{
             max-width: 1400px;
             margin: 0 auto 28px auto;
@@ -159,7 +157,6 @@ def generate_index_html():
         }}
         .reset-btn:hover {{ background: #64748b; }}
 
-        /* 卡片網格排版 */
         .grid {{
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
@@ -196,15 +193,15 @@ def generate_index_html():
         <p>目前庫存 <span id="total-count">{len(videos)}</span> 部影片 | 篩選顯示 <span id="visible-count">{len(videos)}</span> 部</p>
     </div>
 
-    <!-- 篩選列 -->
+    <!-- 篩選面板 -->
     <div class="filter-panel">
         <div class="filter-group">
             <div class="filter-item">
-                <label for="search-input">搜尋標題/關鍵字:</label>
+                <label for="search-input">搜尋標題 / 關鍵字:</label>
                 <input type="text" id="search-input" placeholder="例如：絲襪, 黑絲...">
             </div>
             <div class="filter-item">
-                <label for="actress-select">女優:</label>
+                <label for="actress-select">女優篩選:</label>
                 <select id="actress-select">
                     <option value="">全部女優</option>
                     {actress_options}
@@ -218,10 +215,10 @@ def generate_index_html():
                 </select>
             </div>
         </div>
-        <button class="reset-btn" onclick="resetFilters()">重設篩選</button>
+        <button class="reset-btn" onclick="resetFilters()">重設條件</button>
     </div>
 
-    <!-- 影片網格 -->
+    <!-- 動態影片卡片清單 -->
     <div class="grid" id="video-grid">
         {cards_html}
         <div class="empty-msg" id="empty-msg">查無符合條件的影片</div>
@@ -231,10 +228,10 @@ def generate_index_html():
         const searchInput = document.getElementById('search-input');
         const actressSelect = document.getElementById('actress-select');
         const dateSort = document.getElementById('date-sort');
-        const cards = Array.from(document.querySelectorAll('.card'));
         const visibleCountSpan = document.getElementById('visible-count');
         const emptyMsg = document.getElementById('empty-msg');
         const grid = document.getElementById('video-grid');
+        const cards = Array.from(document.querySelectorAll('.card'));
 
         function applyFilter() {{
             const searchVal = searchInput.value.trim().toLowerCase();
@@ -242,9 +239,9 @@ def generate_index_html():
             let visibleCount = 0;
 
             cards.forEach(card => {{
-                const title = card.getAttribute('data-title');
-                const actress = card.getAttribute('data-actress');
-                const tags = card.getAttribute('data-tags');
+                const title = card.getAttribute('data-title') || '';
+                const actress = card.getAttribute('data-actress') || '';
+                const tags = card.getAttribute('data-tags') || '';
 
                 const matchSearch = !searchVal || title.includes(searchVal) || tags.includes(searchVal);
                 const matchActress = !actressVal || actress.includes(actressVal);
@@ -264,8 +261,8 @@ def generate_index_html():
         function applySort() {{
             const isOldest = dateSort.value === 'oldest';
             const sortedCards = cards.slice().sort((a, b) => {{
-                const dateA = a.getAttribute('data-date');
-                const dateB = b.getAttribute('data-date');
+                const dateA = a.getAttribute('data-date') || '';
+                const dateB = b.getAttribute('data-date') || '';
                 return isOldest ? dateA.localeCompare(dateB) : dateB.localeCompare(dateA);
             }});
             sortedCards.forEach(card => grid.appendChild(card));
@@ -291,7 +288,7 @@ def generate_index_html():
 """
     with open("index.html", "w", encoding="utf-8") as f:
         f.write(html_content)
-    print("✅ 已成功產出具備多功能篩選器的最新 index.html")
+    print(f"✅ 已成功產出最新動態 index.html（共收錄 {len(videos)} 部影片）")
 
 def send_email_report(new_videos):
     if not new_videos or not SENDER_EMAIL or not SENDER_PASSWORD:
@@ -374,11 +371,11 @@ async def run_scraper():
                         img_meta = detail_soup.select_one('meta[property="og:image"]')
                         cover_image_url = img_meta.get('content') if img_meta else ""
 
-                        # 抓取女優欄位（Jable 內頁 models 連結）
+                        # 抓取女優欄位
                         model_links = detail_soup.select('a[href*="/models/"]')
                         actress_name = " ".join([m.text.strip() for m in model_links if m.text.strip()])
 
-                        # 抓取 h5 標籤欄位
+                        # 抓取標籤
                         h5_tags = detail_soup.find_all('h5')
                         h5_text = " ".join([h.text.strip() for h in h5_tags])
 
@@ -397,10 +394,10 @@ async def run_scraper():
 
             print(f"✅ 爬取結束！新收錄 {len(newly_added_videos)} 部影片")
             
-            # 生成包含篩選器的 index.html
+            # 動態重新生成 index.html
             generate_index_html()
             
-            # 發送郵件報告
+            # 發送郵件
             send_email_report(newly_added_videos)
 
         finally:
