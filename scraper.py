@@ -60,7 +60,7 @@ def get_all_videos():
     return rows
 
 def sync_to_google_sheet(new_videos):
-    """將影片同步寫入 Google 試算表（若試算表為空，自動同步資料庫所有歷史影片）"""
+    """將影片同步至 Google 試算表（若試算表為空，自動匯入資料庫所有歷史影片）"""
     creds_json = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
     sheet_id = os.getenv("GOOGLE_SHEET_ID")
 
@@ -77,19 +77,17 @@ def sync_to_google_sheet(new_videos):
         sheet = client.open_by_key(sheet_id).sheet1
         existing_rows = sheet.get_all_values()
 
-        # 如果 Google 試算表是完全空白的，自動寫入表頭並把資料庫目前所有影片全部匯入
+        # 若 Google 試算表完全空白，自動寫入表頭並將資料庫現有所有影片一次全部同步
         if not existing_rows:
             sheet.append_row(["標題", "女優", "標籤", "影片連結", "封面連結", "抓取時間"])
             all_videos = get_all_videos()
             for v in all_videos:
-                # v 結構: (id, title, cover_url, tags, actress, video_url, created_at)
                 sheet.append_row([
                     v[1], v[4] or "未知", v[3] or "", v[5], v[2], v[6]
                 ])
             print(f"✅ Google 試算表為空，已成功將資料庫現有的 {len(all_videos)} 部影片全部同步！")
             return
 
-        # 若試算表已有資料，則僅追加本次新抓到的影片
         if not new_videos:
             print("本次無新影片需要同步至 Google 試算表。")
             return
@@ -349,8 +347,11 @@ async def run_scraper():
                         img_meta = detail_soup.select_one('meta[property="og:image"]')
                         cover_image_url = img_meta.get('content') if img_meta else ""
 
+                        # 抓取女優名稱（優先讀取 data-original-title）
                         model_links = detail_soup.select('a[href*="/models/"]')
-                        actress_name = " ".join([m.text.strip() for m in model_links if m.text.strip()])
+                        actress_name = " ".join([m.get('data-original-title').strip() for m in model_links if m.get('data-original-title')])
+                        if not actress_name:
+                            actress_name = " ".join([m.text.strip() for m in model_links if m.text.strip()])
 
                         h5_tags = detail_soup.find_all('h5')
                         h5_text = " ".join([h.text.strip() for h in h5_tags])
