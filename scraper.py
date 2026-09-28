@@ -150,11 +150,15 @@ def generate_index_html():
         .header {{ text-align: center; margin-bottom: 24px; }}
         .header h1 {{ font-size: 1.8rem; color: #38bdf8; margin-bottom: 6px; }}
         .header p {{ color: #94a3b8; font-size: 0.9rem; }}
-        .filter-panel {{ max-width: 1400px; margin: 0 auto 28px auto; background: #1e293b; padding: 18px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); display: flex; flex-wrap: wrap; gap: 16px; align-items: center; justify-content: space-between; }}
-        .filter-group {{ display: flex; flex-wrap: wrap; gap: 12px; align-items: center; flex-grow: 1; }}
+        .filter-panel {{ max-width: 1400px; margin: 0 auto 28px auto; background: #1e293b; padding: 18px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); display: flex; flex-direction: column; gap: 16px; }}
+        .filter-row {{ display: flex; flex-wrap: wrap; gap: 20px; align-items: center; justify-content: space-between; }}
+        .filter-group {{ display: flex; flex-wrap: wrap; gap: 16px; align-items: center; flex-grow: 1; }}
         .filter-item {{ display: flex; align-items: center; gap: 8px; }}
         .filter-item label {{ font-size: 0.85rem; color: #94a3b8; }}
-        .filter-item input, .filter-item select {{ background: #0f172a; border: 1px solid #334155; color: #f1f5f9; padding: 8px 12px; border-radius: 6px; font-size: 0.85rem; outline: none; }}
+        .filter-item select {{ background: #0f172a; border: 1px solid #334155; color: #f1f5f9; padding: 8px 12px; border-radius: 6px; font-size: 0.85rem; outline: none; }}
+        .checkbox-container {{ display: flex; flex-wrap: wrap; gap: 12px; align-items: center; background: #0f172a; padding: 10px 14px; border-radius: 6px; border: 1px solid #334155; }}
+        .checkbox-label {{ font-size: 0.85rem; color: #cbd5e1; display: flex; align-items: center; gap: 4px; cursor: pointer; }}
+        .checkbox-label input {{ cursor: pointer; }}
         .reset-btn {{ background: #475569; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 0.85rem; }}
         .reset-btn:hover {{ background: #64748b; }}
         .grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px; max-width: 1400px; margin: 0 auto; }}
@@ -179,34 +183,49 @@ def generate_index_html():
         <p>目前庫存 <span id="total-count">{len(videos)}</span> 部影片 | 篩選顯示 <span id="visible-count">{len(videos)}</span> 部</p>
     </div>
     <div class="filter-panel">
-        <div class="filter-group">
-            <div class="filter-item">
-                <label for="search-input">搜尋標題 / 關鍵字:</label>
-                <input type="text" id="search-input" placeholder="例如：絲襪, 黑絲...">
+        <div class="filter-row">
+            <div class="filter-group">
+                <div class="filter-item">
+                    <label>關鍵字複選:</label>
+                    <div class="checkbox-container">
+                        <label class="checkbox-label"><input type="checkbox" name="keyword" value="絲襪"> 絲襪</label>
+                        <label class="checkbox-label"><input type="checkbox" name="keyword" value="黑絲"> 黑絲</label>
+                        <label class="checkbox-label"><input type="checkbox" name="keyword" value="白絲"> 白絲</label>
+                        <label class="checkbox-label"><input type="checkbox" name="keyword" value="肉絲"> 肉絲</label>
+                        <label class="checkbox-label"><input type="checkbox" name="keyword" value="網襪"> 網襪</label>
+                        <label class="checkbox-label"><input type="checkbox" name="keyword" value="足交"> 足交</label>
+                        <label class="checkbox-label"><input type="checkbox" name="keyword" value="腳交"> 腳交</label>
+                        <label class="checkbox-label"><input type="checkbox" name="keyword" value="舔腳"> 舔腳</label>
+                    </div>
+                </div>
             </div>
-            <div class="filter-item">
-                <label for="actress-select">女優篩選:</label>
-                <select id="actress-select">
-                    <option value="">全部女優</option>
-                    {actress_options}
-                </select>
-            </div>
-            <div class="filter-item">
-                <label for="date-sort">新增時間排序:</label>
-                <select id="date-sort">
-                    <option value="newest">最新優先</option>
-                    <option value="oldest">較舊優先</option>
-                </select>
+            <button class="reset-btn" onclick="resetFilters()">重設條件</button>
+        </div>
+        <div class="filter-row">
+            <div class="filter-group">
+                <div class="filter-item">
+                    <label for="actress-select">女優篩選:</label>
+                    <select id="actress-select">
+                        <option value="">全部女優</option>
+                        {actress_options}
+                    </select>
+                </div>
+                <div class="filter-item">
+                    <label for="date-sort">新增時間排序:</label>
+                    <select id="date-sort">
+                        <option value="newest">最新優先</option>
+                        <option value="oldest">較舊優先</option>
+                    </select>
+                </div>
             </div>
         </div>
-        <button class="reset-btn" onclick="resetFilters()">重設條件</button>
     </div>
     <div class="grid" id="video-grid">
         {cards_html}
         <div class="empty-msg" id="empty-msg">查無符合條件的影片</div>
     </div>
     <script>
-        const searchInput = document.getElementById('search-input');
+        const keywordCheckboxes = document.querySelectorAll('input[name="keyword"]');
         const actressSelect = document.getElementById('actress-select');
         const dateSort = document.getElementById('date-sort');
         const visibleCountSpan = document.getElementById('visible-count');
@@ -215,16 +234,22 @@ def generate_index_html():
         const cards = Array.from(document.querySelectorAll('.card'));
 
         function applyFilter() {{
-            const searchVal = searchInput.value.trim().toLowerCase();
+            const selectedKeywords = Array.from(keywordCheckboxes)
+                .filter(cb => cb.checked)
+                .map(cb => cb.value.toLowerCase());
             const actressVal = actressSelect.value.trim().toLowerCase();
+            
             let visibleCount = 0;
             cards.forEach(card => {{
                 const title = card.getAttribute('data-title') || '';
                 const actress = card.getAttribute('data-actress') || '';
                 const tags = card.getAttribute('data-tags') || '';
-                const matchSearch = !searchVal || title.includes(searchVal) || tags.includes(searchVal);
+                
+                // 檢查是否符合勾選的任一關鍵字（符合其中一個即可）
+                const matchKeyword = selectedKeywords.length === 0 || selectedKeywords.some(kw => title.includes(kw) || tags.includes(kw));
                 const matchActress = !actressVal || actress.includes(actressVal);
-                if (matchSearch && matchActress) {{
+
+                if (matchKeyword && matchActress) {{
                     card.style.display = 'flex';
                     visibleCount++;
                 }} else {{
@@ -246,14 +271,14 @@ def generate_index_html():
         }}
 
         function resetFilters() {{
-            searchInput.value = '';
+            keywordCheckboxes.forEach(cb => cb.checked = false);
             actressSelect.value = '';
             dateSort.value = 'newest';
             applySort();
             applyFilter();
         }}
 
-        searchInput.addEventListener('input', applyFilter);
+        keywordCheckboxes.forEach(cb => cb.addEventListener('change', applyFilter));
         actressSelect.addEventListener('change', applyFilter);
         dateSort.addEventListener('change', () => {{ applySort(); applyFilter(); }});
     </script>
