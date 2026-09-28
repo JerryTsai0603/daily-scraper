@@ -1,5 +1,5 @@
 def sync_to_google_sheet(new_videos):
-    """將新抓取的影片同步寫入 Google 試算表"""
+    """將新抓取的影片同步寫入 Google 試算表（加入完整防護避免中斷）"""
     if not new_videos:
         print("本次無新影片需要同步至 Google 試算表。")
         return
@@ -12,7 +12,6 @@ def sync_to_google_sheet(new_videos):
         return
 
     try:
-        import traceback
         scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
         creds_dict = json.loads(creds_json)
         creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
@@ -35,6 +34,6 @@ def sync_to_google_sheet(new_videos):
             ])
         print("✅ 成功同步新影片至 Google 試算表！")
     except Exception as e:
-        print(f"❌ 同步 Google 試算表失敗: {e}")
+        print(f"❌ 同步 Google 試算表失敗 (略過以繼續執行): {e}")
         import traceback
         traceback.print_exc()
