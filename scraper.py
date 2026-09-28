@@ -107,6 +107,7 @@ def sync_to_google_sheet(new_videos):
 def generate_index_html():
     videos = get_all_videos()
     all_actresses = set()
+    all_tags_set = set()
     cards_html = ""
     for v in reversed(videos):
         vid_id, title, cover_url, tags, actress, video_url, created_at = v
@@ -115,6 +116,11 @@ def generate_index_html():
             for act in actress.split():
                 if act.strip():
                     all_actresses.add(act.strip())
+        
+        if tags:
+            for t in tags.split(','):
+                if t.strip():
+                    all_tags_set.add(t.strip())
 
         date_str = created_at[:10] if created_at else ""
         cover_img = cover_url if cover_url else "https://via.placeholder.com/300x180?text=No+Cover"
@@ -137,6 +143,17 @@ def generate_index_html():
         """
 
     actress_options = "".join([f'<option value="{act.lower()}">{act}</option>' for act in sorted(all_actresses)])
+    
+    # 動態產生分類與標籤的複選框清單
+    default_tags = ["絲襪", "黑絲", "白絲", "肉絲", "網襪", "足交", "腳交", "舔腳"]
+    for t in all_tags_set:
+        if t not in default_tags:
+            default_tags.append(t)
+            
+    checkboxes_html = "".join([
+        f'<label class="checkbox-label"><input type="checkbox" name="keyword" value="{tag}"> {tag}</label>' 
+        for tag in default_tags
+    ])
 
     html_content = f"""<!DOCTYPE html>
 <html lang="zh-TW">
@@ -156,7 +173,7 @@ def generate_index_html():
         .filter-item {{ display: flex; align-items: center; gap: 8px; }}
         .filter-item label {{ font-size: 0.85rem; color: #94a3b8; }}
         .filter-item select {{ background: #0f172a; border: 1px solid #334155; color: #f1f5f9; padding: 8px 12px; border-radius: 6px; font-size: 0.85rem; outline: none; }}
-        .checkbox-container {{ display: flex; flex-wrap: wrap; gap: 12px; align-items: center; background: #0f172a; padding: 10px 14px; border-radius: 6px; border: 1px solid #334155; }}
+        .checkbox-container {{ display: flex; flex-wrap: wrap; gap: 12px; align-items: center; background: #0f172a; padding: 10px 14px; border-radius: 6px; border: 1px solid #334155; max-height: 120px; overflow-y: auto; }}
         .checkbox-label {{ font-size: 0.85rem; color: #cbd5e1; display: flex; align-items: center; gap: 4px; cursor: pointer; }}
         .checkbox-label input {{ cursor: pointer; }}
         .reset-btn {{ background: #475569; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 0.85rem; }}
@@ -185,17 +202,10 @@ def generate_index_html():
     <div class="filter-panel">
         <div class="filter-row">
             <div class="filter-group">
-                <div class="filter-item">
-                    <label>關鍵字複選:</label>
-                    <div class="checkbox-container">
-                        <label class="checkbox-label"><input type="checkbox" name="keyword" value="絲襪"> 絲襪</label>
-                        <label class="checkbox-label"><input type="checkbox" name="keyword" value="黑絲"> 黑絲</label>
-                        <label class="checkbox-label"><input type="checkbox" name="keyword" value="白絲"> 白絲</label>
-                        <label class="checkbox-label"><input type="checkbox" name="keyword" value="肉絲"> 肉絲</label>
-                        <label class="checkbox-label"><input type="checkbox" name="keyword" value="網襪"> 網襪</label>
-                        <label class="checkbox-label"><input type="checkbox" name="keyword" value="足交"> 足交</label>
-                        <label class="checkbox-label"><input type="checkbox" name="keyword" value="腳交"> 腳交</label>
-                        <label class="checkbox-label"><input type="checkbox" name="keyword" value="舔腳"> 舔腳</label>
+                <div class="filter-item" style="width: 100%;">
+                    <label style="min-width: 90px;">Categories & Tags 複選:</label>
+                    <div class="checkbox-container" style="flex-grow: 1;">
+                        {checkboxes_html}
                     </div>
                 </div>
             </div>
@@ -245,7 +255,6 @@ def generate_index_html():
                 const actress = card.getAttribute('data-actress') || '';
                 const tags = card.getAttribute('data-tags') || '';
                 
-                // 檢查是否符合勾選的任一關鍵字（符合其中一個即可）
                 const matchKeyword = selectedKeywords.length === 0 || selectedKeywords.some(kw => title.includes(kw) || tags.includes(kw));
                 const matchActress = !actressVal || actress.includes(actressVal);
 
@@ -369,23 +378,40 @@ async def run_scraper():
                         img_meta = detail_soup.select_one('meta[property="og:image"]')
                         cover_image_url = img_meta.get('content') if img_meta else ""
 
-                        # 🎯 依據要求：取影片標題的最後一個文字段落作為女優名稱
+                        # 🎯 女優名稱：取影片標題的最後一個文字段落
                         parts = video_title.split()
                         actress_name = parts[-1].strip() if parts else "未知"
 
-                        h5_tags = detail_soup.find_all('h5')
-                        h5_text = " ".join([h.text.strip() for h in h5_tags])
+                        # 🎯 從網頁的 categories 與 tags 區域精準抓取關鍵字/標籤
+                        tags_list = []
+                        # 抓取分類連結 (categories) 與標籤連結 (tags)
+                        tag_elements = detail_soup.select('a[href*="/categories/"], a[href*="/tags/"]')
+                        for tag_el in tag_elements:
+                            t_name = tag_el.get('data-original-title') or tag_el.text
+                            if t_name and t_name.strip():
+                                clean_t = t_name.strip()
+                                if clean_t not in tags_list:
+                                    tags_list.append(clean_t)
+                        
+                        # 備用：若找不到專屬標籤連結，則退回原本的 h5 標籤
+                        if not tags_list:
+                            h5_tags = detail_soup.find_all('h5')
+                            tags_list = [h.text.strip() for h in h5_tags if h.text.strip()]
 
-                        if any(kw in h5_text for kw in keywords) or any(kw in video_title for kw in keywords):
-                            if save_video(video_title, cover_image_url, h5_text, actress_name, video_url):
+                        tags_str = ", ".join(tags_list)
+
+                        # 判斷是否符合過濾關鍵字
+                        combined_text = f"{video_title} {tags_str}"
+                        if any(kw in combined_text for kw in keywords):
+                            if save_video(video_title, cover_image_url, tags_str, actress_name, video_url):
                                 newly_added_videos.append({
                                     "title": video_title,
                                     "cover_url": cover_image_url,
-                                    "tags": h5_text,
+                                    "tags": tags_str,
                                     "actress": actress_name,
                                     "video_url": video_url
                                 })
-                                print(f"  🎯 [新收錄] {video_title} (女優: {actress_name})")
+                                print(f"  🎯 [新收錄] {video_title} (標籤: {tags_str})")
                     except Exception:
                         continue
 
