@@ -320,8 +320,8 @@ def send_email_report(new_videos):
 
 async def run_scraper():
     init_db()
-    # 🎯 嚴格鎖定指定的三個標籤網址結尾
-    target_tag_paths = ["/tags/pantyhose/", "/tags/black-pantyhose/", "/tags/footjob/"]
+    # 🎯 指定需要符合的目標標籤超連結路徑
+    target_tags_paths = ["/tags/pantyhose/", "/tags/black-pantyhose/", "/tags/footjob/"]
     seen_urls = set()
     newly_added_videos = []
 
@@ -334,6 +334,7 @@ async def run_scraper():
             )
             page = await context.new_page()
 
+            # 🎯 掃描指定的中文字幕分類頁面前兩頁
             for page_num in range(1, 3):
                 target_url = "https://jable.tv/categories/chinese-subtitle/" if page_num == 1 else f"https://jable.tv/categories/chinese-subtitle/{page_num}/"
                 print(f"正在掃描第 {page_num}/2 頁: {target_url}")
@@ -360,6 +361,7 @@ async def run_scraper():
                             seen_urls.add(full_url)
                             page_links.append(full_url)
 
+                # 逐一檢查前兩頁抓到的每個影片連結內容
                 for idx, video_url in enumerate(page_links, 1):
                     try:
                         await page.goto(video_url, timeout=30000)
@@ -376,26 +378,24 @@ async def run_scraper():
                         parts = video_title.split()
                         actress_name = parts[-1].strip() if parts else "未知"
 
-                        # 🎯 檢查 <h5 class="tags h6-md"> 內部的 <a> 標籤連結是否包含目標標籤路徑
-                        h5_tags_elements = detail_soup.select('h5.tags.h6-md')
+                        # 🎯 檢查 <h5 class="tags h6-md"> 底下的所有 <a href=""> 標籤連結
+                        tag_links = detail_soup.select('h5.tags.h6-md a[href]')
                         tags_list = []
                         has_target_tag = False
 
-                        for h in h5_tags_elements:
-                            text = h.text.strip()
-                            if text and "此作品曾在本站上傳" not in text and len(text) < 25:
-                                tags_list.append(text)
+                        for a_elem in tag_links:
+                            href = a_elem.get('href', '')
+                            t_text = a_elem.text.strip()
+                            if t_text and "此作品曾在本站上傳" not in t_text:
+                                tags_list.append(t_text)
                             
-                            # 檢查內部的 <a> 標籤 href
-                            a_tag = h.find('a', href=True)
-                            if a_tag:
-                                href = a_tag['href']
-                                if any(path in href for path in target_tag_paths):
-                                    has_target_tag = True
+                            # 🎯 比對是否包含指定的標籤路徑
+                            if any(path in href for path in target_tags_paths):
+                                has_target_tag = True
 
-                        tags_str = ", ".join(tags_list)
+                        tags_str = ", ".join(tags_list) if tags_list else "一般"
 
-                        # 🎯 唯有當網頁的 <a> 標籤包含目標標籤路徑時才予以收錄
+                        # 🎯 唯有當網頁內含有指定標籤連結時才進行收錄
                         if has_target_tag:
                             if save_video(video_title, cover_image_url, tags_str, actress_name, video_url):
                                 newly_added_videos.append({
