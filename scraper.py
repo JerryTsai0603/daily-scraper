@@ -375,12 +375,11 @@ async def run_scraper():
                         parts = video_title.split()
                         actress_name = parts[-1].strip() if parts else "未知"
 
-                        # 🎯 精準抓取網頁中帶有 class 的 h5 標籤作為 Tags，並排除系統提示文字
+                        # 🎯 抓取網頁中帶有 class 的 h5 標籤作為 Tags，並排除提示文字
                         h5_tags_with_class = detail_soup.select('h5[class]')
                         tags_list = []
                         for h in h5_tags_with_class:
                             text = h.text.strip()
-                            # 排除「此作品曾在本站上傳」等系統提示與過長文字
                             if text and "此作品曾在本站上傳" not in text and len(text) < 25:
                                 if text not in tags_list:
                                     tags_list.append(text)
