@@ -8,7 +8,6 @@ from playwright.async_api import async_playwright
 from playwright_stealth import Stealth
 from bs4 import BeautifulSoup
 
-# --- 讀取雲端環境變數 ---
 DB_FILE = "videos.db"
 RECIPIENT_EMAIL = os.getenv("RECIPIENT_EMAIL", "edgedge0603@gmail.com")
 SENDER_EMAIL = os.getenv("SENDER_EMAIL")
@@ -43,41 +42,87 @@ def save_video(title, cover_url, tags, video_url):
     finally:
         conn.close()
 
-def send_email_report(new_videos):
-    if not new_videos:
-        print("本次無新增影片，不寄送通知信。")
-        return
+def get_all_videos():
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, title, cover_url, tags, video_url, created_at FROM videos ORDER BY id DESC")
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
 
-    if not SENDER_EMAIL or not SENDER_PASSWORD:
-        print("未設定寄件者帳號或密碼，略過郵件發送。")
-        return
-
-    subject = f"【每日影片爬蟲報告】今日新增 {len(new_videos)} 部符合條件的影片"
+def generate_index_html():
+    """讀取資料庫並自動產生靜態 index.html"""
+    videos = get_all_videos()
     
-    items_html = ""
-    for v in new_videos:
-        items_html += f"""
-        <div style="border:1px solid #e2e8f0; border-radius:8px; padding:12px; margin-bottom:15px; background-color:#f8fafc;">
-            <div style="display:flex; gap:12px; align-items:center;">
-                <img src="{v['cover_url']}" alt="封面" style="width:160px; height:100px; object-fit:cover; border-radius:6px;" referrerpolicy="no-referrer">
-                <div>
-                    <h3 style="margin:0 0 6px 0; font-size:15px; color:#0f172a;">{v['title']}</h3>
-                    <p style="margin:0 0 8px 0; font-size:12px; color:#64748b;">標籤：{v['tags'] or '無'}</p>
-                    <a href="{v['video_url']}" target="_blank" style="display:inline-block; padding:6px 12px; background-color:#0284c7; color:#fff; text-decoration:none; border-radius:4px; font-size:12px;">前往觀看</a>
+    cards_html = ""
+    for v in videos:
+        cards_html += f"""
+        <div class="card">
+            <img src="{v[2] or 'https://via.placeholder.com/300x180?text=No+Cover'}" alt="封面" loading="lazy" referrerpolicy="no-referrer">
+            <div class="card-body">
+                <div class="title" title="{v[1]}">{v[1]}</div>
+                <div class="tags" title="{v[3]}">{v[3] or '無標籤'}</div>
+                <div class="footer">
+                    <span class="date">{v[5][:10] if v[5] else ''}</span>
+                    <a href="{v[4]}" target="_blank" class="btn">前往觀看</a>
                 </div>
             </div>
         </div>
         """
 
-    html_content = f"""
-    <html>
-        <body style="font-family: Arial, sans-serif; color: #333; line-height: 1.5;">
-            <h2>每日爬蟲更新通知</h2>
-            <p>本次排程共篩選並新入庫 <strong>{len(new_videos)}</strong> 部影片：</p>
-            {items_html}
-        </body>
-    </html>
-    """
+    html_content = f"""<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jable 影片收藏庫</title>
+    <style>
+        * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+        body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background-color: #0b0f19; color: #f8fafc; padding: 30px 16px; }}
+        .header {{ text-align: center; margin-bottom: 35px; }}
+        .header h1 {{ font-size: 1.8rem; color: #38bdf8; margin-bottom: 8px; }}
+        .header p {{ color: #94a3b8; font-size: 0.9rem; }}
+        .grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px; max-width: 1400px; margin: 0 auto; }}
+        .card {{ background: #1e293b; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.3); display: flex; flex-direction: column; transition: transform 0.2s; }}
+        .card:hover {{ transform: translateY(-4px); }}
+        .card img {{ width: 100%; height: 180px; object-fit: cover; background: #334155; }}
+        .card-body {{ padding: 14px; flex-grow: 1; display: flex; flex-direction: column; justify-content: space-between; }}
+        .title {{ font-size: 0.95rem; font-weight: 600; line-height: 1.4; color: #f1f5f9; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; margin-bottom: 8px; }}
+        .tags {{ font-size: 0.75rem; color: #94a3b8; background: #0f172a; padding: 4px 8px; border-radius: 4px; margin-bottom: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
+        .footer {{ display: flex; justify-content: space-between; align-items: center; margin-top: auto; }}
+        .date {{ font-size: 0.75rem; color: #64748b; }}
+        .btn {{ background: #0284c7; color: #fff; text-decoration: none; padding: 6px 14px; border-radius: 6px; font-size: 0.85rem; font-weight: 500; }}
+        .btn:hover {{ background: #0369a1; }}
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Jable 影片自動典藏庫</h1>
+        <p>目前資料庫共收藏 {len(videos)} 部影片</p>
+    </div>
+    <div class="grid">
+        {cards_html}
+    </div>
+</body>
+</html>
+"""
+    with open("index.html", "w", encoding="utf-8") as f:
+        f.write(html_content)
+    print("✅ 已成功產出最新 index.html")
+
+def send_email_report(new_videos):
+    if not new_videos or not SENDER_EMAIL or not SENDER_PASSWORD:
+        return
+
+    subject = f"【每日影片爬蟲報告】今日新增 {len(new_videos)} 部符合條件的影片"
+    items_html = "".join([
+        f"""<div style="border:1px solid #e2e8f0; border-radius:8px; padding:12px; margin-bottom:12px;">
+            <img src="{v['cover_url']}" style="width:160px; height:100px; object-fit:cover; border-radius:4px;" referrerpolicy="no-referrer">
+            <h4 style="margin:6px 0;">{v['title']}</h4>
+            <a href="{v['video_url']}" target="_blank">前往觀看</a>
+        </div>""" for v in new_videos
+    ])
+    html_content = f"<h2>今日更新通知</h2><p>本次新增 <strong>{len(new_videos)}</strong> 部：</p>{items_html}"
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
@@ -86,7 +131,6 @@ def send_email_report(new_videos):
     msg.attach(MIMEText(html_content, "html", "utf-8"))
 
     try:
-        print(f"正在寄送通知信至 {RECIPIENT_EMAIL}...")
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
             server.login(SENDER_EMAIL, SENDER_PASSWORD)
             server.sendmail(SENDER_EMAIL, RECIPIENT_EMAIL, msg.as_string())
@@ -102,7 +146,6 @@ async def run_scraper():
 
     async with Stealth().use_async(async_playwright()) as p:
         try:
-            # 雲端環境使用無頭模式與內建 chromium
             browser = await p.chromium.launch(headless=True)
             context = await browser.new_context(
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
@@ -112,13 +155,12 @@ async def run_scraper():
 
             for page_num in range(1, 3):
                 target_url = "https://jable.tv/categories/chinese-subtitle/" if page_num == 1 else f"https://jable.tv/categories/chinese-subtitle/{page_num}/"
-                print(f"\n正在掃描第 {page_num}/2 頁: {target_url}")
+                print(f"正在掃描第 {page_num}/2 頁: {target_url}")
 
                 try:
                     await page.goto(target_url, timeout=60000)
                     await page.wait_for_timeout(3000)
                 except Exception as e:
-                    print(f"無法載入第 {page_num} 頁: {e}")
                     continue
 
                 for _ in range(2):
@@ -161,13 +203,15 @@ async def run_scraper():
                                     "video_url": video_url
                                 })
                                 print(f"  🎯 [新收錄] {video_title}")
-                            else:
-                                print(f"  ℹ️ [已存在] {video_title}")
-
-                    except Exception as err:
+                    except Exception:
                         continue
 
-            print(f"\n✅ 爬取結束！本次新收錄 {len(newly_added_videos)} 部影片")
+            print(f"✅ 爬取結束！新收錄 {len(newly_added_videos)} 部影片")
+            
+            # 生成 index.html
+            generate_index_html()
+            
+            # 寄出郵件
             send_email_report(newly_added_videos)
 
         finally:

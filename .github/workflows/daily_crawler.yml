@@ -2,9 +2,11 @@ name: Daily Video Scraper
 
 on:
   schedule:
-    # 台灣時間 (UTC+8) 早上 06:00 對應 UTC 時間 22:00
-    - cron: '0 22 * * *'
-  workflow_dispatch: # 支援在 GitHub 網頁手動點擊執行
+    - cron: '0 22 * * *' # 台灣時間 06:00
+  workflow_dispatch:
+
+permissions:
+  contents: write # 允許 Actions 把更新後的 index.html 與 db 寫回儲存庫
 
 jobs:
   run-crawler:
@@ -25,15 +27,22 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: 安裝 Playwright 瀏覽器及系統依賴
+      - name: 安裝 Playwright
         run: |
           playwright install chromium
           playwright install-deps chromium
 
-      - name: 執行爬蟲並發送郵件
+      - name: 執行爬蟲、生成資料庫與 index.html
         env:
           SENDER_EMAIL: ${{ secrets.SENDER_EMAIL }}
           SENDER_PASSWORD: ${{ secrets.SENDER_PASSWORD }}
           RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
         run: |
           python scraper.py
+
+      - name: 自動將資料庫與網頁提交保存
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add videos.db index.html
+          git diff --quiet && git diff --staged --quiet || (git commit -m "chore: update database and index.html [skip ci]" && git push)
