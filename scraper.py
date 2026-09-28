@@ -60,7 +60,7 @@ def get_all_videos():
     return rows
 
 def sync_to_google_sheet(new_videos):
-    """將影片同步至 Google 試算表（更嚴謹的空白檢查，自動匯入所有歷史影片）"""
+    """將影片同步至 Google 試算表（封面欄位自動套用 =IMAGE() 公式顯示圖片）"""
     creds_json = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
     sheet_id = os.getenv("GOOGLE_SHEET_ID")
 
@@ -77,18 +77,19 @@ def sync_to_google_sheet(new_videos):
         sheet = client.open_by_key(sheet_id).sheet1
         existing_rows = sheet.get_all_values()
 
-        # 檢查是否為空（排除只有空字串或空陣列的情況）
         is_truly_empty = not existing_rows or all(not any(cell.strip() for cell in row) for row in existing_rows)
 
         if is_truly_empty:
             print("💡 偵測到 Google 試算表為空，開始全量同步資料庫現有影片...")
-            sheet.clear()  # 清除可能殘留的空白格
-            sheet.append_row(["標題", "女優", "標籤", "影片連結", "封面連結", "抓取時間"])
+            sheet.clear()
+            sheet.append_row(["標題", "女優", "標籤", "影片連結", "封面圖片", "抓取時間"])
             all_videos = get_all_videos()
             for v in all_videos:
+                # v 結構: (id, title, cover_url, tags, actress, video_url, created_at)
+                image_formula = f'=IMAGE("{v[2]}")' if v[2] else ""
                 sheet.append_row([
-                    v[1], v[4] or "未知", v[3] or "", v[5], v[2], v[6]
-                ])
+                    v[1], v[4] or "未知", v[3] or "", v[5], image_formula, v[6]
+                ], value_input_option='USER_ENTERED')
             print(f"✅ 已成功將資料庫現有的 {len(all_videos)} 部影片全部同步至 Google 試算表！")
             return
 
@@ -97,14 +98,15 @@ def sync_to_google_sheet(new_videos):
             return
 
         for v in new_videos:
+            image_formula = f'=IMAGE("{v["cover_url"]}")' if v["cover_url"] else ""
             sheet.append_row([
                 v["title"],
                 v["actress"] or "未知",
                 v["tags"] or "",
                 v["video_url"],
-                v["cover_url"],
+                image_formula,
                 datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            ])
+            ], value_input_option='USER_ENTERED')
         print("✅ 成功同步新影片至 Google 試算表！")
     except Exception as e:
         print(f"❌ 同步 Google 試算表失敗 (略過以繼續執行): {e}")
@@ -278,7 +280,7 @@ def send_email_report(new_videos):
     items_html = "".join([
         f"""<div style="border:1px solid #e2e8f0; border-radius:8px; padding:12px; margin-bottom:12px;">
             <img src="{v['cover_url']}" style="width:160px; height:100px; object-fit:cover; border-radius:4px;" referrerpolicy="no-referrer">
-            <h4 style="margin:6px 0;">{v['title']} (女優: {v['actress'] or '未知'})</h4>
+            <h4 style="margin:6px 0;">{v['title']} (女優: {v['actress']})</h4>
             <a href="{v['video_url']}" target="_blank">前往觀看</a>
         </div>""" for v in new_videos
     ])
@@ -351,11 +353,9 @@ async def run_scraper():
                         img_meta = detail_soup.select_one('meta[property="og:image"]')
                         cover_image_url = img_meta.get('content') if img_meta else ""
 
-                        # 抓取女優名稱（優先讀取 data-original-title）
-                        model_links = detail_soup.select('a[href*="/models/"]')
-                        actress_name = " ".join([m.get('data-original-title').strip() for m in model_links if m.get('data-original-title')])
-                        if not actress_name:
-                            actress_name = " ".join([m.text.strip() for m in model_links if m.text.strip()])
+                        # 🎯 依據要求：取影片標題的最後一個文字段落作為女優名稱
+                        parts = video_title.split()
+                        actress_name = parts[-1].strip() if parts else "未知"
 
                         h5_tags = detail_soup.find_all('h5')
                         h5_text = " ".join([h.text.strip() for h in h5_tags])
@@ -369,7 +369,7 @@ async def run_scraper():
                                     "actress": actress_name,
                                     "video_url": video_url
                                 })
-                                print(f"  🎯 [新收錄] {video_title} (女優: {actress_name or '未知'})")
+                                print(f"  🎯 [新收錄] {video_title} (女優: {actress_name})")
                     except Exception:
                         continue
 
