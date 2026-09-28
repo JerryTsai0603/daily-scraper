@@ -60,7 +60,7 @@ def get_all_videos():
     return rows
 
 def sync_to_google_sheet(new_videos):
-    """將影片同步至 Google 試算表（若試算表為空，自動匯入資料庫所有歷史影片）"""
+    """將影片同步至 Google 試算表（更嚴謹的空白檢查，自動匯入所有歷史影片）"""
     creds_json = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
     sheet_id = os.getenv("GOOGLE_SHEET_ID")
 
@@ -77,15 +77,19 @@ def sync_to_google_sheet(new_videos):
         sheet = client.open_by_key(sheet_id).sheet1
         existing_rows = sheet.get_all_values()
 
-        # 若 Google 試算表完全空白，自動寫入表頭並將資料庫現有所有影片一次全部同步
-        if not existing_rows:
+        # 檢查是否為空（排除只有空字串或空陣列的情況）
+        is_truly_empty = not existing_rows or all(not any(cell.strip() for cell in row) for row in existing_rows)
+
+        if is_truly_empty:
+            print("💡 偵測到 Google 試算表為空，開始全量同步資料庫現有影片...")
+            sheet.clear()  # 清除可能殘留的空白格
             sheet.append_row(["標題", "女優", "標籤", "影片連結", "封面連結", "抓取時間"])
             all_videos = get_all_videos()
             for v in all_videos:
                 sheet.append_row([
                     v[1], v[4] or "未知", v[3] or "", v[5], v[2], v[6]
                 ])
-            print(f"✅ Google 試算表為空，已成功將資料庫現有的 {len(all_videos)} 部影片全部同步！")
+            print(f"✅ 已成功將資料庫現有的 {len(all_videos)} 部影片全部同步至 Google 試算表！")
             return
 
         if not new_videos:
