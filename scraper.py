@@ -1,12 +1,16 @@
 import os
+import json
 import asyncio
 import sqlite3
 import smtplib
+from datetime import datetime
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from playwright.async_api import async_playwright
 from playwright_stealth import Stealth
 from bs4 import BeautifulSoup
+import gspread
+from google.oauth2.service_account import Credentials
 
 DB_FILE = "videos.db"
 RECIPIENT_EMAIL = os.getenv("RECIPIENT_EMAIL", "edgedge0603@gmail.com")
@@ -55,10 +59,46 @@ def get_all_videos():
     conn.close()
     return rows
 
+def sync_to_google_sheet(new_videos):
+    """將新抓取的影片同步寫入 Google 試算表"""
+    if not new_videos:
+        print("本次無新影片需要同步至 Google 試算表。")
+        return
+
+    creds_json = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
+    sheet_id = os.getenv("GOOGLE_SHEET_ID")
+
+    if not creds_json or not sheet_id:
+        print("⚠️ 未設定 Google 試算表相關 Secrets，跳過試算表同步。")
+        return
+
+    try:
+        scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+        creds_dict = json.loads(creds_json)
+        creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
+        client = gspread.authorize(creds)
+
+        sheet = client.open_by_key(sheet_id).sheet1
+
+        # 若工作表完全空白，自動寫入表頭
+        if not sheet.get_all_values():
+            sheet.append_row(["標題", "女優", "標籤", "影片連結", "封面連結", "抓取時間"])
+
+        for v in new_videos:
+            sheet.append_row([
+                v["title"],
+                v["actress"] or "未知",
+                v["tags"] or "",
+                v["video_url"],
+                v["cover_url"],
+                datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            ])
+        print("✅ 成功同步新影片至 Google 試算表！")
+    except Exception as e:
+        print(f"❌ 同步 Google 試算表失敗: {e}")
+
 def generate_index_html():
-    """從資料庫動態產出包含即時內容與篩選器的 index.html"""
     videos = get_all_videos()
-    
     all_actresses = set()
     cards_html = ""
     for v in videos:
@@ -103,76 +143,15 @@ def generate_index_html():
         .header {{ text-align: center; margin-bottom: 24px; }}
         .header h1 {{ font-size: 1.8rem; color: #38bdf8; margin-bottom: 6px; }}
         .header p {{ color: #94a3b8; font-size: 0.9rem; }}
-
-        .filter-panel {{
-            max-width: 1400px;
-            margin: 0 auto 28px auto;
-            background: #1e293b;
-            padding: 18px;
-            border-radius: 12px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-            display: flex;
-            flex-wrap: wrap;
-            gap: 16px;
-            align-items: center;
-            justify-content: space-between;
-        }}
-        .filter-group {{
-            display: flex;
-            flex-wrap: wrap;
-            gap: 12px;
-            align-items: center;
-            flex-grow: 1;
-        }}
-        .filter-item {{
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }}
-        .filter-item label {{
-            font-size: 0.85rem;
-            color: #94a3b8;
-        }}
-        .filter-item input, .filter-item select {{
-            background: #0f172a;
-            border: 1px solid #334155;
-            color: #f1f5f9;
-            padding: 8px 12px;
-            border-radius: 6px;
-            font-size: 0.85rem;
-            outline: none;
-        }}
-        .filter-item input:focus, .filter-item select:focus {{
-            border-color: #38bdf8;
-        }}
-        .reset-btn {{
-            background: #475569;
-            color: white;
-            border: none;
-            padding: 8px 16px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 0.85rem;
-            transition: background 0.2s;
-        }}
+        .filter-panel {{ max-width: 1400px; margin: 0 auto 28px auto; background: #1e293b; padding: 18px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); display: flex; flex-wrap: wrap; gap: 16px; align-items: center; justify-content: space-between; }}
+        .filter-group {{ display: flex; flex-wrap: wrap; gap: 12px; align-items: center; flex-grow: 1; }}
+        .filter-item {{ display: flex; align-items: center; gap: 8px; }}
+        .filter-item label {{ font-size: 0.85rem; color: #94a3b8; }}
+        .filter-item input, .filter-item select {{ background: #0f172a; border: 1px solid #334155; color: #f1f5f9; padding: 8px 12px; border-radius: 6px; font-size: 0.85rem; outline: none; }}
+        .reset-btn {{ background: #475569; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 0.85rem; }}
         .reset-btn:hover {{ background: #64748b; }}
-
-        .grid {{
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-            gap: 20px;
-            max-width: 1400px;
-            margin: 0 auto;
-        }}
-        .card {{
-            background: #1e293b;
-            border-radius: 12px;
-            overflow: hidden;
-            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.3);
-            display: flex;
-            flex-direction: column;
-            transition: transform 0.2s;
-        }}
+        .grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px; max-width: 1400px; margin: 0 auto; }}
+        .card {{ background: #1e293b; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.3); display: flex; flex-direction: column; transition: transform 0.2s; }}
         .card:hover {{ transform: translateY(-4px); }}
         .card img {{ width: 100%; height: 180px; object-fit: cover; background-color: #334155; }}
         .card-body {{ padding: 14px; flex-grow: 1; display: flex; flex-direction: column; justify-content: space-between; }}
@@ -182,7 +161,7 @@ def generate_index_html():
         .date {{ color: #64748b; }}
         .tags {{ font-size: 0.75rem; color: #94a3b8; background: #0f172a; padding: 4px 8px; border-radius: 4px; margin-bottom: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
         .footer {{ display: flex; justify-content: flex-end; margin-top: auto; }}
-        .btn {{ background: #0284c7; color: #fff; text-decoration: none; padding: 6px 14px; border-radius: 6px; font-size: 0.85rem; font-weight: 500; transition: background 0.2s; }}
+        .btn {{ background: #0284c7; color: #fff; text-decoration: none; padding: 6px 14px; border-radius: 6px; font-size: 0.85rem; font-weight: 500; }}
         .btn:hover {{ background: #0369a1; }}
         .empty-msg {{ text-align: center; grid-column: 1 / -1; color: #94a3b8; padding: 40px; font-size: 1rem; display: none; }}
     </style>
@@ -192,8 +171,6 @@ def generate_index_html():
         <h1>Jable 影片自動典藏庫</h1>
         <p>目前庫存 <span id="total-count">{len(videos)}</span> 部影片 | 篩選顯示 <span id="visible-count">{len(videos)}</span> 部</p>
     </div>
-
-    <!-- 篩選面板 -->
     <div class="filter-panel">
         <div class="filter-group">
             <div class="filter-item">
@@ -217,13 +194,10 @@ def generate_index_html():
         </div>
         <button class="reset-btn" onclick="resetFilters()">重設條件</button>
     </div>
-
-    <!-- 動態影片卡片清單 -->
     <div class="grid" id="video-grid">
         {cards_html}
         <div class="empty-msg" id="empty-msg">查無符合條件的影片</div>
     </div>
-
     <script>
         const searchInput = document.getElementById('search-input');
         const actressSelect = document.getElementById('actress-select');
@@ -237,15 +211,12 @@ def generate_index_html():
             const searchVal = searchInput.value.trim().toLowerCase();
             const actressVal = actressSelect.value.trim().toLowerCase();
             let visibleCount = 0;
-
             cards.forEach(card => {{
                 const title = card.getAttribute('data-title') || '';
                 const actress = card.getAttribute('data-actress') || '';
                 const tags = card.getAttribute('data-tags') || '';
-
                 const matchSearch = !searchVal || title.includes(searchVal) || tags.includes(searchVal);
                 const matchActress = !actressVal || actress.includes(actressVal);
-
                 if (matchSearch && matchActress) {{
                     card.style.display = 'flex';
                     visibleCount++;
@@ -253,7 +224,6 @@ def generate_index_html():
                     card.style.display = 'none';
                 }}
             }});
-
             visibleCountSpan.textContent = visibleCount;
             emptyMsg.style.display = visibleCount === 0 ? 'block' : 'none';
         }}
@@ -278,10 +248,7 @@ def generate_index_html():
 
         searchInput.addEventListener('input', applyFilter);
         actressSelect.addEventListener('change', applyFilter);
-        dateSort.addEventListener('change', () => {{
-            applySort();
-            applyFilter();
-        }});
+        dateSort.addEventListener('change', () => {{ applySort(); applyFilter(); }});
     </script>
 </body>
 </html>
@@ -293,7 +260,6 @@ def generate_index_html():
 def send_email_report(new_videos):
     if not new_videos or not SENDER_EMAIL or not SENDER_PASSWORD:
         return
-
     subject = f"【每日影片爬蟲報告】今日新增 {len(new_videos)} 部符合條件的影片"
     items_html = "".join([
         f"""<div style="border:1px solid #e2e8f0; border-radius:8px; padding:12px; margin-bottom:12px;">
@@ -314,7 +280,7 @@ def send_email_report(new_videos):
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
             server.login(SENDER_EMAIL, SENDER_PASSWORD)
             server.sendmail(SENDER_EMAIL, RECIPIENT_EMAIL, msg.as_string())
-        print("✅ 郵件寄送成功！")
+        print("✅ 郵件寄ส่ง成功！")
     except Exception as e:
         print(f"❌ 郵件寄送失敗: {e}")
 
@@ -371,11 +337,9 @@ async def run_scraper():
                         img_meta = detail_soup.select_one('meta[property="og:image"]')
                         cover_image_url = img_meta.get('content') if img_meta else ""
 
-                        # 抓取女優欄位
                         model_links = detail_soup.select('a[href*="/models/"]')
                         actress_name = " ".join([m.text.strip() for m in model_links if m.text.strip()])
 
-                        # 抓取標籤
                         h5_tags = detail_soup.find_all('h5')
                         h5_text = " ".join([h.text.strip() for h in h5_tags])
 
@@ -393,6 +357,9 @@ async def run_scraper():
                         continue
 
             print(f"✅ 爬取結束！新收錄 {len(newly_added_videos)} 部影片")
+            
+            # 同步至 Google 試算表
+            sync_to_google_sheet(newly_added_videos)
             
             # 動態重新生成 index.html
             generate_index_html()

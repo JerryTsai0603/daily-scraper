@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write # 允許 Actions 把更新後的 index.html 與 db 寫回儲存庫
+  contents: write
 
 jobs:
   run-crawler:
@@ -32,11 +32,13 @@ jobs:
           playwright install chromium
           playwright install-deps chromium
 
-      - name: 執行爬蟲、生成資料庫與 index.html
+      - name: 執行爬蟲、同步試算表與更新網頁
         env:
           SENDER_EMAIL: ${{ secrets.SENDER_EMAIL }}
           SENDER_PASSWORD: ${{ secrets.SENDER_PASSWORD }}
           RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
         run: |
           python scraper.py
 
@@ -45,4 +47,4 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add videos.db index.html
-          git diff --quiet && git diff --staged --quiet || (git commit -m "chore: update database and index.html [skip ci]" && git push)
+          git diff --quiet && git diff --staged --quiet || (git commit -m "chore: update database, index.html and sync gsheet [skip ci]" && git push)
