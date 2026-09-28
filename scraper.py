@@ -344,9 +344,18 @@ async def run_scraper():
                         img_meta = detail_soup.select_one('meta[property="og:image"]')
                         cover_image_url = img_meta.get('content') if img_meta else ""
 
-                        # 🎯 依據要求：取影片標題的最後一個文字段落作為女優名稱
-                        parts = video_title.split()
-                        actress_name = parts[-1].strip() if parts else "未知"
+                        # 🎯 優先從頁面中的 models 連結抓取正確女優名稱；若無則使用標題最後一個文字段落
+                        model_links = detail_soup.select('a[href*="/models/"]')
+                        actress_name = ""
+                        for m in model_links:
+                            name = m.get('data-original-title') or m.text
+                            if name and name.strip():
+                                actress_name = name.strip()
+                                break
+                        
+                        if not actress_name:
+                            parts = video_title.split()
+                            actress_name = parts[-1].strip() if parts else "未知"
 
                         h5_tags = detail_soup.find_all('h5')
                         h5_text = " ".join([h.text.strip() for h in h5_tags])
