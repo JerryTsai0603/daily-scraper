@@ -60,11 +60,7 @@ def get_all_videos():
     return rows
 
 def sync_to_google_sheet(new_videos):
-    """將新抓取的影片同步寫入 Google 試算表（具備完整防護）"""
-    if not new_videos:
-        print("本次無新影片需要同步至 Google 試算表。")
-        return
-
+    """將影片同步寫入 Google 試算表（若試算表為空，自動同步資料庫所有歷史影片）"""
     creds_json = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
     sheet_id = os.getenv("GOOGLE_SHEET_ID")
 
@@ -79,10 +75,24 @@ def sync_to_google_sheet(new_videos):
         client = gspread.authorize(creds)
 
         sheet = client.open_by_key(sheet_id).sheet1
+        existing_rows = sheet.get_all_values()
 
-        # 若工作表完全空白，自動寫入表頭
-        if not sheet.get_all_values():
+        # 如果 Google 試算表是完全空白的，自動寫入表頭並把資料庫目前所有影片全部匯入
+        if not existing_rows:
             sheet.append_row(["標題", "女優", "標籤", "影片連結", "封面連結", "抓取時間"])
+            all_videos = get_all_videos()
+            for v in all_videos:
+                # v 結構: (id, title, cover_url, tags, actress, video_url, created_at)
+                sheet.append_row([
+                    v[1], v[4] or "未知", v[3] or "", v[5], v[2], v[6]
+                ])
+            print(f"✅ Google 試算表為空，已成功將資料庫現有的 {len(all_videos)} 部影片全部同步！")
+            return
+
+        # 若試算表已有資料，則僅追加本次新抓到的影片
+        if not new_videos:
+            print("本次無新影片需要同步至 Google 試算表。")
+            return
 
         for v in new_videos:
             sheet.append_row([
