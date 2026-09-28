@@ -144,7 +144,6 @@ def generate_index_html():
 
     actress_options = "".join([f'<option value="{act.lower()}">{act}</option>' for act in sorted(all_actresses)])
     
-    # 動態產生從 h5 class 抓取到的標籤複選框
     checkboxes_html = "".join([
         f'<label class="checkbox-label"><input type="checkbox" name="keyword" value="{tag}"> {tag}</label>' 
         for tag in sorted(all_tags_set)
@@ -246,7 +245,6 @@ def generate_index_html():
             
             let visibleCount = 0;
             cards.forEach(card => {{
-                const title = card.getAttribute('data-title') || '';
                 const actress = card.getAttribute('data-actress') || '';
                 const tags = card.getAttribute('data-tags') || '';
                 
@@ -377,14 +375,15 @@ async def run_scraper():
                         parts = video_title.split()
                         actress_name = parts[-1].strip() if parts else "未知"
 
-                        # 🎯 精準抓取網頁中帶有 class 的 h5 標籤作為 Tags
+                        # 🎯 精準抓取網頁中帶有 class 的 h5 標籤作為 Tags，並排除系統提示文字
                         h5_tags_with_class = detail_soup.select('h5[class]')
-                        tags_list = [h.text.strip() for h in h5_tags_with_class if h.text.strip()]
-                        
-                        # 備用：若找不到帶 class 的 h5，則抓取所有 h5
-                        if not tags_list:
-                            h5_tags = detail_soup.find_all('h5')
-                            tags_list = [h.text.strip() for h in h5_tags if h.text.strip()]
+                        tags_list = []
+                        for h in h5_tags_with_class:
+                            text = h.text.strip()
+                            # 排除「此作品曾在本站上傳」等系統提示與過長文字
+                            if text and "此作品曾在本站上傳" not in text and len(text) < 25:
+                                if text not in tags_list:
+                                    tags_list.append(text)
 
                         tags_str = ", ".join(tags_list)
                         combined_text = f"{video_title} {tags_str}"
