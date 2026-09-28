@@ -320,8 +320,8 @@ def send_email_report(new_videos):
 
 async def run_scraper():
     init_db()
-    # 🎯 嚴格鎖定指定的三個核心標籤
-    target_tags = ["pantyhose", "footjob", "black-pantyhose"]
+    # 🎯 嚴格鎖定指定的三個標籤網址結尾
+    target_tag_paths = ["/tags/pantyhose/", "/tags/black-pantyhose/", "/tags/footjob/"]
     seen_urls = set()
     newly_added_videos = []
 
@@ -376,7 +376,7 @@ async def run_scraper():
                         parts = video_title.split()
                         actress_name = parts[-1].strip() if parts else "未知"
 
-                        # 🎯 鎖定 <h5 class="tags h6-md"> 抓取標籤
+                        # 🎯 檢查 <h5 class="tags h6-md"> 內部的 <a> 標籤連結是否包含目標標籤路徑
                         h5_tags_elements = detail_soup.select('h5.tags.h6-md')
                         tags_list = []
                         has_target_tag = False
@@ -385,13 +385,17 @@ async def run_scraper():
                             text = h.text.strip()
                             if text and "此作品曾在本站上傳" not in text and len(text) < 25:
                                 tags_list.append(text)
-                                # 檢查是否包含指定的目標標籤
-                                if any(t.lower() in text.lower() for t in target_tags):
+                            
+                            # 檢查內部的 <a> 標籤 href
+                            a_tag = h.find('a', href=True)
+                            if a_tag:
+                                href = a_tag['href']
+                                if any(path in href for path in target_tag_paths):
                                     has_target_tag = True
 
                         tags_str = ", ".join(tags_list)
 
-                        # 🎯 唯有當 <h5 class="tags h6-md"> 內包含目標標籤時才予以收錄
+                        # 🎯 唯有當網頁的 <a> 標籤包含目標標籤路徑時才予以收錄
                         if has_target_tag:
                             if save_video(video_title, cover_image_url, tags_str, actress_name, video_url):
                                 newly_added_videos.append({
