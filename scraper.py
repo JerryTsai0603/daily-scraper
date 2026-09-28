@@ -54,13 +54,13 @@ def save_video(title, cover_url, tags, actress, video_url):
 def get_all_videos():
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
-    cursor.execute("SELECT id, title, cover_url, tags, actress, video_url, created_at FROM videos ORDER BY id DESC")
+    cursor.execute("SELECT id, title, cover_url, tags, actress, video_url, created_at FROM videos ORDER BY id ASC")
     rows = cursor.fetchall()
     conn.close()
     return rows
 
 def sync_to_google_sheet(new_videos):
-    """將影片同步至 Google 試算表（封面欄位自動套用 =IMAGE() 公式顯示圖片）"""
+    """智慧同步：自動比對 Google 試算表與資料庫，將遺漏的影片全部補齊（封面使用 =IMAGE() 顯示）"""
     creds_json = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
     sheet_id = os.getenv("GOOGLE_SHEET_ID")
 
@@ -77,37 +77,28 @@ def sync_to_google_sheet(new_videos):
         sheet = client.open_by_key(sheet_id).sheet1
         existing_rows = sheet.get_all_values()
 
-        is_truly_empty = not existing_rows or all(not any(cell.strip() for cell in row) for row in existing_rows)
-
-        if is_truly_empty:
-            print("💡 偵測到 Google 試算表為空，開始全量同步資料庫現有影片...")
-            sheet.clear()
+        if not existing_rows:
             sheet.append_row(["標題", "女優", "標籤", "影片連結", "封面圖片", "抓取時間"])
-            all_videos = get_all_videos()
-            for v in all_videos:
-                # v 結構: (id, title, cover_url, tags, actress, video_url, created_at)
-                image_formula = f'=IMAGE("{v[2]}")' if v[2] else ""
+            existing_urls = set()
+        else:
+            existing_urls = {row[3] for row in existing_rows[1:] if len(row) > 3}
+
+        all_videos = get_all_videos()
+        added_count = 0
+
+        for v in all_videos:
+            vid_id, title, cover_url, tags, actress, video_url, created_at = v
+            if video_url not in existing_urls:
+                image_formula = f'=IMAGE("{cover_url}")' if cover_url else ""
                 sheet.append_row([
-                    v[1], v[4] or "未知", v[3] or "", v[5], image_formula, v[6]
+                    title, actress or "未知", tags or "", video_url, image_formula, created_at
                 ], value_input_option='USER_ENTERED')
-            print(f"✅ 已成功將資料庫現有的 {len(all_videos)} 部影片全部同步至 Google 試算表！")
-            return
+                added_count += 1
 
-        if not new_videos:
-            print("本次無新影片需要同步至 Google 試算表。")
-            return
-
-        for v in new_videos:
-            image_formula = f'=IMAGE("{v["cover_url"]}")' if v["cover_url"] else ""
-            sheet.append_row([
-                v["title"],
-                v["actress"] or "未知",
-                v["tags"] or "",
-                v["video_url"],
-                image_formula,
-                datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            ], value_input_option='USER_ENTERED')
-        print("✅ 成功同步新影片至 Google 試算表！")
+        if added_count > 0:
+            print(f"✅ 成功同步 {added_count} 筆影片至 Google 試算表！")
+        else:
+            print("✅ Google 試算表已包含所有資料庫影片，無需同步。")
     except Exception as e:
         print(f"❌ 同步 Google 試算表失敗 (略過以繼續執行): {e}")
         import traceback
@@ -117,7 +108,7 @@ def generate_index_html():
     videos = get_all_videos()
     all_actresses = set()
     cards_html = ""
-    for v in videos:
+    for v in reversed(videos):
         vid_id, title, cover_url, tags, actress, video_url, created_at = v
         actress_display = actress.strip() if actress and actress.strip() else "未知/多人"
         if actress:
@@ -375,7 +366,7 @@ async def run_scraper():
 
             print(f"✅ 爬取結束！新收錄 {len(newly_added_videos)} 部影片")
             
-            # 同步至 Google 試算表
+            # 同步至 Google 試算表（智慧比對補齊）
             sync_to_google_sheet(newly_added_videos)
             
             # 動態重新生成 index.html
