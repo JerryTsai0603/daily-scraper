@@ -320,8 +320,8 @@ def send_email_report(new_videos):
 
 async def run_scraper():
     init_db()
-    # 🎯 鎖定 Jable 網頁上的英文/中文標籤代碼關鍵字（包含 pantyhose 與 footjob 等）
-    keywords = ["pantyhose", "footjob", "絲襪", "黑絲", "白絲", "肉絲", "網襪", "腳交", "足交", "玩腳", "舔腳"]
+    # 🎯 嚴格鎖定指定的三個核心標籤
+    target_tags = ["pantyhose", "footjob", "black-pantyhose"]
     seen_urls = set()
     newly_added_videos = []
 
@@ -376,20 +376,23 @@ async def run_scraper():
                         parts = video_title.split()
                         actress_name = parts[-1].strip() if parts else "未知"
 
-                        # 🎯 嚴格鎖定 <h5 class="tags h6-md"> 項目內部的 Tags 抓取
+                        # 🎯 鎖定 <h5 class="tags h6-md"> 抓取標籤
                         h5_tags_elements = detail_soup.select('h5.tags.h6-md')
                         tags_list = []
+                        has_target_tag = False
+
                         for h in h5_tags_elements:
                             text = h.text.strip()
                             if text and "此作品曾在本站上傳" not in text and len(text) < 25:
-                                if text not in tags_list:
-                                    tags_list.append(text)
+                                tags_list.append(text)
+                                # 檢查是否包含指定的目標標籤
+                                if any(t.lower() in text.lower() for t in target_tags):
+                                    has_target_tag = True
 
                         tags_str = ", ".join(tags_list)
-                        combined_text = f"{video_title} {tags_str}".lower()
 
-                        # 🎯 必須符合指定的關鍵字（含 pantyhose, footjob 等）才進行收錄
-                        if any(kw.lower() in combined_text for kw in keywords):
+                        # 🎯 唯有當 <h5 class="tags h6-md"> 內包含目標標籤時才予以收錄
+                        if has_target_tag:
                             if save_video(video_title, cover_image_url, tags_str, actress_name, video_url):
                                 newly_added_videos.append({
                                     "title": video_title,
