@@ -320,7 +320,8 @@ def send_email_report(new_videos):
 
 async def run_scraper():
     init_db()
-    keywords = ["絲襪", "黑絲", "白絲", "肉絲", "網襪", "腳交", "足交", "玩腳", "舔腳", "腳", "足"]
+    # 🎯 鎖定 Jable 網頁上的英文/中文標籤代碼關鍵字（包含 pantyhose 與 footjob 等）
+    keywords = ["pantyhose", "footjob", "絲襪", "黑絲", "白絲", "肉絲", "網襪", "腳交", "足交", "玩腳", "舔腳"]
     seen_urls = set()
     newly_added_videos = []
 
@@ -375,28 +376,20 @@ async def run_scraper():
                         parts = video_title.split()
                         actress_name = parts[-1].strip() if parts else "未知"
 
-                        # 🎯 抓取網頁中所有 h5 標籤以及分類/標籤連結作為 Tags
+                        # 🎯 嚴格鎖定 <h5 class="tags h6-md"> 項目內部的 Tags 抓取
+                        h5_tags_elements = detail_soup.select('h5.tags.h6-md')
                         tags_list = []
-                        h5_tags = detail_soup.find_all('h5')
-                        for h in h5_tags:
+                        for h in h5_tags_elements:
                             text = h.text.strip()
                             if text and "此作品曾在本站上傳" not in text and len(text) < 25:
                                 if text not in tags_list:
                                     tags_list.append(text)
 
-                        tag_elements = detail_soup.select('a[href*="/categories/"], a[href*="/tags/"]')
-                        for tag_el in tag_elements:
-                            t_name = tag_el.get('data-original-title') or tag_el.text
-                            if t_name and t_name.strip():
-                                clean_t = t_name.strip()
-                                if clean_t not in tags_list and len(clean_t) < 25:
-                                    tags_list.append(clean_t)
-
                         tags_str = ", ".join(tags_list)
-                        combined_text = f"{video_title} {tags_str}"
+                        combined_text = f"{video_title} {tags_str}".lower()
 
-                        # 🎯 比對關鍵字（只要標題或標籤包含其中一個關鍵字即收錄）
-                        if any(kw in combined_text for kw in keywords):
+                        # 🎯 必須符合指定的關鍵字（含 pantyhose, footjob 等）才進行收錄
+                        if any(kw.lower() in combined_text for kw in keywords):
                             if save_video(video_title, cover_image_url, tags_str, actress_name, video_url):
                                 newly_added_videos.append({
                                     "title": video_title,
