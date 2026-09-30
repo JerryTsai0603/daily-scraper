@@ -320,7 +320,7 @@ def send_email_report(new_videos):
 
 async def run_scraper():
     init_db()
-    # 🎯 指定需要符合的目標標籤超連結路徑
+    # 🎯 嚴格指定的目標標籤網址結尾路徑條件
     target_tags_paths = ["/tags/pantyhose/", "/tags/black-pantyhose/", "/tags/footjob/"]
     seen_urls = set()
     newly_added_videos = []
@@ -361,7 +361,7 @@ async def run_scraper():
                             seen_urls.add(full_url)
                             page_links.append(full_url)
 
-                # 逐一檢查前兩頁抓到的每個影片連結內容
+                # 🎯 逐一進到每個影片連結內部進行詳細檢查
                 for idx, video_url in enumerate(page_links, 1):
                     try:
                         await page.goto(video_url, timeout=30000)
@@ -378,7 +378,7 @@ async def run_scraper():
                         parts = video_title.split()
                         actress_name = parts[-1].strip() if parts else "未知"
 
-                        # 🎯 檢查 <h5 class="tags h6-md"> 底下的所有 <a href=""> 標籤連結
+                        # 🎯 檢查 <h5 class="tags h6-md"> 裡面的所有 <a> 標籤連結
                         tag_links = detail_soup.select('h5.tags.h6-md a[href]')
                         tags_list = []
                         has_target_tag = False
@@ -389,13 +389,13 @@ async def run_scraper():
                             if t_text and "此作品曾在本站上傳" not in t_text:
                                 tags_list.append(t_text)
                             
-                            # 🎯 比對是否包含指定的標籤路徑
+                            # 🎯 嚴格判讀：檢查超連結路徑是否包含指定的標籤
                             if any(path in href for path in target_tags_paths):
                                 has_target_tag = True
 
                         tags_str = ", ".join(tags_list) if tags_list else "一般"
 
-                        # 🎯 唯有當網頁內含有指定標籤連結時才進行收錄
+                        # 🎯 嚴格依據 if has_target_tag 條件判斷是否收錄
                         if has_target_tag:
                             if save_video(video_title, cover_image_url, tags_str, actress_name, video_url):
                                 newly_added_videos.append({
