@@ -320,7 +320,7 @@ def send_email_report(new_videos):
 
 async def run_scraper():
     init_db()
-    # 🎯 嚴格指定的目標標籤網址結尾路徑條件
+    # 🎯 嚴格指定的目標標籤路徑
     target_tags_paths = ["/tags/pantyhose/", "/tags/black-pantyhose/", "/tags/footjob/"]
     seen_urls = set()
     newly_added_videos = []
@@ -361,11 +361,14 @@ async def run_scraper():
                             seen_urls.add(full_url)
                             page_links.append(full_url)
 
-                # 🎯 逐一進到每個影片連結內部進行詳細檢查
+                print(f"第 {page_num} 頁共收集到 {len(page_links)} 個不重複影片連結，準備逐一進入頁面檢查...")
+
+                # 🎯 確實點進去每個影片連結內部進行詳細檢查
                 for idx, video_url in enumerate(page_links, 1):
                     try:
+                        print(f"  -> 正在檢查 ({idx}/{len(page_links)}): {video_url}")
                         await page.goto(video_url, timeout=30000)
-                        await page.wait_for_timeout(1500)
+                        await page.wait_for_timeout(2000)
 
                         detail_soup = BeautifulSoup(await page.content(), 'html.parser')
                         title_elem = detail_soup.select_one('h4') or detail_soup.select_one('h1') or detail_soup.find('title')
@@ -405,8 +408,11 @@ async def run_scraper():
                                     "actress": actress_name,
                                     "video_url": video_url
                                 })
-                                print(f"  🎯 [新收錄] {video_title} (標籤: {tags_str})")
-                    except Exception:
+                                print(f"    🎯 [符合條件收錄] {video_title} (標籤: {tags_str})")
+                        else:
+                            print(f"    ⏭️ [略過] 不符合指定標籤")
+                    except Exception as e:
+                        print(f"    ❌ 存取失敗: {e}")
                         continue
 
             print(f"✅ 爬取結束！新收錄 {len(newly_added_videos)} 部影片")
