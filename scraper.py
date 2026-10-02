@@ -327,24 +327,46 @@ def send_email_report(new_videos):
     except Exception as e:
         print(f"❌ 郵件寄送失敗: {e}")
 
-async def wait_for_cloudflare_pass(page, max_wait_sec=25):
-    """主動靜止等待 Cloudflare 盾牌驗證通過，不重新整理中斷驗證過程"""
-    for second in range(max_wait_sec):
+async def wait_until_cf_cleared(page, is_category_page=True, max_wait_sec=35):
+    """精準雙語防護辨識：支援中英文 Cloudflare 盾牌，並確認目標內容載入完成"""
+    for _ in range(max_wait_sec):
         title = await page.title()
-        if "just a moment" not in title.lower():
-            return True
+        title_lower = title.lower()
+
+        # 🎯 中英雙語盾牌關鍵字辨識
+        is_cf = any(k in title_lower for k in [
+            "just a moment", "請稍候", "请稍候", "checking your browser",
+            "challenge", "cloudflare", "attention required"
+        ])
+
+        if is_cf:
+            await page.wait_for_timeout(1000)
+            continue
+
+        # 盾牌已過，進一步確認頁面主體是否已經渲染
+        if is_category_page:
+            boxes = await page.query_selector_all('.video-img-box')
+            if len(boxes) > 0:
+                return True
+        else:
+            header = await page.query_selector('h4, h1, h5.tags')
+            if header:
+                return True
+
         await page.wait_for_timeout(1000)
     return False
 
-async def safe_navigate(page, url):
-    """安全導航封裝：進入網頁並確保通過 Cloudflare 盾牌"""
+async def safe_navigate(page, url, is_category=True):
+    """安全導航：載入後靜止等待驗證通過，不重複重整以避免打斷 Cloudflare 計算"""
     try:
         await page.goto(url, timeout=60000, wait_until="domcontentloaded")
-        await wait_for_cloudflare_pass(page, max_wait_sec=25)
-        await page.wait_for_timeout(2000)
-        return True
+        cleared = await wait_until_cf_cleared(page, is_category_page=is_category, max_wait_sec=35)
+        if not cleared:
+            curr_title = await page.title()
+            print(f"    ⚠️ 驗證或內容載入超時 ({url})，當前標題: '{curr_title}'")
+        return cleared
     except Exception as e:
-        print(f"  ⚠️ 導航例外 ({url}): {e}")
+        print(f"    ⚠️ 導航失敗 ({url}): {e}")
         return False
 
 async def run_scraper():
@@ -370,36 +392,24 @@ async def run_scraper():
             )
             page = await context.new_page()
 
-            # 首頁預熱：建立初始驗證 Cookie
+            # 🌐 預熱首頁建立 session 與通行 Cookie
             print("🌐 正在連線預熱...")
-            await safe_navigate(page, "https://jable.tv/")
+            await safe_navigate(page, "https://jable.tv/", is_category=False)
+            await page.wait_for_timeout(2000)
 
             for page_num in range(1, 3):
                 target_url = "https://jable.tv/categories/chinese-subtitle/" if page_num == 1 else f"https://jable.tv/categories/chinese-subtitle/{page_num}/"
                 print(f"正在掃描第 {page_num}/2 頁: {target_url}")
 
-                video_boxes = []
-                for attempt in range(1, 3):
-                    success = await safe_navigate(page, target_url)
-                    if not success:
-                        continue
+                success = await safe_navigate(page, target_url, is_category=True)
 
-                    # 模擬自然滾動加載
-                    for _ in range(4):
-                        await page.evaluate("window.scrollTo(0, document.body.scrollHeight);")
-                        await page.wait_for_timeout(1500)
+                # 模擬真實滾動以加載包含 IPZZ-921 等動態加載項目
+                for _ in range(4):
+                    await page.evaluate("window.scrollTo(0, document.body.scrollHeight);")
+                    await page.wait_for_timeout(1500)
 
-                    soup = BeautifulSoup(await page.content(), 'html.parser')
-                    video_boxes = soup.select('.video-img-box')
-
-                    if len(video_boxes) > 0:
-                        break
-
-                    current_title = await page.title()
-                    print(f"  ⚠️ 第 {page_num} 頁抓到 0 筆 (標題: '{current_title}')，等待驗證中 (嘗試 {attempt}/2)...")
-                    # 若依然在驗證中，延長單頁等待，不刷新重來
-                    await wait_for_cloudflare_pass(page, max_wait_sec=15)
-
+                soup = BeautifulSoup(await page.content(), 'html.parser')
+                video_boxes = soup.select('.video-img-box')
                 print(f"  -> 第 {page_num} 頁總共抓到 {len(video_boxes)} 個 video-img-box")
 
                 page_links = []
@@ -415,8 +425,8 @@ async def run_scraper():
 
                 for idx, video_url in enumerate(page_links, 1):
                     try:
-                        # 進入影片頁同樣確保避開盾牌
-                        await safe_navigate(page, video_url)
+                        # 進入影片詳細頁同樣確保避開盾牌
+                        await safe_navigate(page, video_url, is_category=False)
 
                         detail_soup = BeautifulSoup(await page.content(), 'html.parser')
                         title_elem = detail_soup.select_one('h4') or detail_soup.select_one('h1') or detail_soup.find('title')
@@ -440,6 +450,7 @@ async def run_scraper():
                             if t_text and "此作品曾在本站上傳" not in t_text:
                                 tags_list.append(t_text)
                             
+                            # 🎯 檢查超連結路徑是否包含指定的標籤
                             if any(path in href for path in target_tags_paths):
                                 has_target_tag = True
 
