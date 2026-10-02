@@ -327,6 +327,26 @@ def send_email_report(new_videos):
     except Exception as e:
         print(f"❌ 郵件寄送失敗: {e}")
 
+async def wait_for_cloudflare_pass(page, max_wait_sec=25):
+    """主動靜止等待 Cloudflare 盾牌驗證通過，不重新整理中斷驗證過程"""
+    for second in range(max_wait_sec):
+        title = await page.title()
+        if "just a moment" not in title.lower():
+            return True
+        await page.wait_for_timeout(1000)
+    return False
+
+async def safe_navigate(page, url):
+    """安全導航封裝：進入網頁並確保通過 Cloudflare 盾牌"""
+    try:
+        await page.goto(url, timeout=60000, wait_until="domcontentloaded")
+        await wait_for_cloudflare_pass(page, max_wait_sec=25)
+        await page.wait_for_timeout(2000)
+        return True
+    except Exception as e:
+        print(f"  ⚠️ 導航例外 ({url}): {e}")
+        return False
+
 async def run_scraper():
     init_db()
     target_tags_paths = ["/tags/pantyhose/", "/tags/black-pantyhose/", "/tags/footjob/"]
@@ -337,51 +357,48 @@ async def run_scraper():
         try:
             browser = await p.chromium.launch(
                 headless=True,
-                args=["--disable-blink-features=AutomationControlled", "--no-sandbox"]
+                args=[
+                    "--disable-blink-features=AutomationControlled",
+                    "--no-sandbox",
+                    "--disable-infobars"
+                ]
             )
             context = await browser.new_context(
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
                 viewport={"width": 1920, "height": 1080},
-                java_script_enabled=True
+                locale="zh-TW"
             )
             page = await context.new_page()
 
-            # 🎯 預熱連線：首訪首頁以通過 Cloudflare 屏障並儲存 Cookie
-            print("🌐 正在進行連線預熱 (建立 Cloudflare 信任階段)...")
-            try:
-                await page.goto("https://jable.tv/", timeout=60000, wait_until="domcontentloaded")
-                await page.wait_for_timeout(5000)
-            except Exception as e:
-                print(f"⚠️ 預熱連線異常 (仍繼續執行): {e}")
+            # 首頁預熱：建立初始驗證 Cookie
+            print("🌐 正在連線預熱...")
+            await safe_navigate(page, "https://jable.tv/")
 
             for page_num in range(1, 3):
-                # 🎯 第 1 頁採用標準路徑（不帶 /1/），第 2 頁帶 /2/
                 target_url = "https://jable.tv/categories/chinese-subtitle/" if page_num == 1 else f"https://jable.tv/categories/chinese-subtitle/{page_num}/"
                 print(f"正在掃描第 {page_num}/2 頁: {target_url}")
 
                 video_boxes = []
-                # 🎯 重試循環：若抓到 0 筆則重新整理並重試，最高 3 次
-                for attempt in range(1, 4):
-                    try:
-                        await page.goto(target_url, timeout=60000, wait_until="domcontentloaded")
-                        await page.wait_for_timeout(4000)
+                for attempt in range(1, 3):
+                    success = await safe_navigate(page, target_url)
+                    if not success:
+                        continue
 
-                        for _ in range(4):
-                            await page.evaluate("window.scrollTo(0, document.body.scrollHeight);")
-                            await page.wait_for_timeout(1500)
+                    # 模擬自然滾動加載
+                    for _ in range(4):
+                        await page.evaluate("window.scrollTo(0, document.body.scrollHeight);")
+                        await page.wait_for_timeout(1500)
 
-                        soup = BeautifulSoup(await page.content(), 'html.parser')
-                        video_boxes = soup.select('.video-img-box')
+                    soup = BeautifulSoup(await page.content(), 'html.parser')
+                    video_boxes = soup.select('.video-img-box')
 
-                        if len(video_boxes) > 0:
-                            break
-                        
-                        current_title = await page.title()
-                        print(f"  ⚠️ 第 {page_num} 頁抓到 0 筆 (標題: '{current_title}')，等待 4 秒後重試 ({attempt}/3)...")
-                        await page.wait_for_timeout(4000)
-                    except Exception as e:
-                        print(f"  ⚠️ 第 {page_num} 頁載入失敗 ({e})，正在重試...")
-                        await page.wait_for_timeout(4000)
+                    if len(video_boxes) > 0:
+                        break
+
+                    current_title = await page.title()
+                    print(f"  ⚠️ 第 {page_num} 頁抓到 0 筆 (標題: '{current_title}')，等待驗證中 (嘗試 {attempt}/2)...")
+                    # 若依然在驗證中，延長單頁等待，不刷新重來
+                    await wait_for_cloudflare_pass(page, max_wait_sec=15)
 
                 print(f"  -> 第 {page_num} 頁總共抓到 {len(video_boxes)} 個 video-img-box")
 
@@ -398,8 +415,8 @@ async def run_scraper():
 
                 for idx, video_url in enumerate(page_links, 1):
                     try:
-                        await page.goto(video_url, timeout=30000, wait_until="domcontentloaded")
-                        await page.wait_for_timeout(1500)
+                        # 進入影片頁同樣確保避開盾牌
+                        await safe_navigate(page, video_url)
 
                         detail_soup = BeautifulSoup(await page.content(), 'html.parser')
                         title_elem = detail_soup.select_one('h4') or detail_soup.select_one('h1') or detail_soup.find('title')
