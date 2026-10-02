@@ -96,7 +96,6 @@ def sync_to_google_sheet(new_videos):
                     title, actress or "未知", tags or "", video_url, image_formula, created_at
                 ], value_input_option='USER_ENTERED')
                 
-                # 自動將寫入該筆資料的列高放大至 120 像素，讓 =IMAGE() 顯示的圖片變大
                 try:
                     sheet.format(f"E{current_row_index}", {"textFormat": {"fontSize": 10}})
                     sheet.update_row_height(current_row_index, 120)
@@ -112,8 +111,6 @@ def sync_to_google_sheet(new_videos):
             print("✅ Google 試算表已包含所有資料庫影片，無需同步。")
     except Exception as e:
         print(f"❌ 同步 Google 試算表失敗 (略過以繼續執行): {e}")
-        import traceback
-        traceback.print_exc()
 
 def generate_index_html():
     videos = get_all_videos()
@@ -337,10 +334,14 @@ async def run_scraper():
 
     async with Stealth().use_async(async_playwright()) as p:
         try:
-            browser = await p.chromium.launch(headless=True)
+            browser = await p.chromium.launch(
+                headless=True,
+                args=["--disable-blink-features=AutomationControlled", "--no-sandbox"]
+            )
             context = await browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-                viewport={"width": 1920, "height": 1080}
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                viewport={"width": 1920, "height": 1080},
+                java_script_enabled=True
             )
             page = await context.new_page()
 
@@ -349,9 +350,9 @@ async def run_scraper():
                 print(f"正在掃描第 {page_num}/2 頁: {target_url}")
 
                 try:
-                    # 🎯 改用更穩健的 domcontentloaded，並將逾時延長至 60 秒
                     await page.goto(target_url, timeout=60000, wait_until="domcontentloaded")
-                    await page.wait_for_timeout(5000) # 給予充裕的時間讓 JavaScript 渲染影片方塊
+                    # 增加穩定等待時間，確保頁面渲染完成
+                    await page.wait_for_timeout(6000)
                 except Exception as e:
                     print(f"⚠️ 第 {page_num} 頁載入超時或失敗: {e}")
                     continue
@@ -377,8 +378,8 @@ async def run_scraper():
 
                 for idx, video_url in enumerate(page_links, 1):
                     try:
-                        await page.goto(video_url, timeout=30000)
-                        await page.wait_for_timeout(1500)
+                        await page.goto(video_url, timeout=30000, wait_until="domcontentloaded")
+                        await page.wait_for_timeout(2000)
 
                         detail_soup = BeautifulSoup(await page.content(), 'html.parser')
                         title_elem = detail_soup.select_one('h4') or detail_soup.select_one('h1') or detail_soup.find('title')
