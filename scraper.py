@@ -96,6 +96,7 @@ def sync_to_google_sheet(new_videos):
                     title, actress or "未知", tags or "", video_url, image_formula, created_at
                 ], value_input_option='USER_ENTERED')
                 
+                # 自動將寫入該筆資料的列高放大至 120 像素
                 try:
                     sheet.format(f"E{current_row_index}", {"textFormat": {"fontSize": 10}})
                     sheet.update_row_height(current_row_index, 120)
@@ -345,24 +346,43 @@ async def run_scraper():
             )
             page = await context.new_page()
 
+            # 🎯 預熱連線：首訪首頁以通過 Cloudflare 屏障並儲存 Cookie
+            print("🌐 正在進行連線預熱 (建立 Cloudflare 信任階段)...")
+            try:
+                await page.goto("https://jable.tv/", timeout=60000, wait_until="domcontentloaded")
+                await page.wait_for_timeout(5000)
+            except Exception as e:
+                print(f"⚠️ 預熱連線異常 (仍繼續執行): {e}")
+
             for page_num in range(1, 3):
-                # 🎯 將第一頁也改用明確的帶頁碼網址格式，避開根目錄的載入防護
-                target_url = f"https://jable.tv/categories/chinese-subtitle/{page_num}/"
+                # 🎯 第 1 頁採用標準路徑（不帶 /1/），第 2 頁帶 /2/
+                target_url = "https://jable.tv/categories/chinese-subtitle/" if page_num == 1 else f"https://jable.tv/categories/chinese-subtitle/{page_num}/"
                 print(f"正在掃描第 {page_num}/2 頁: {target_url}")
 
-                try:
-                    await page.goto(target_url, timeout=60000, wait_until="domcontentloaded")
-                    await page.wait_for_timeout(6000)
-                except Exception as e:
-                    print(f"⚠️ 第 {page_num} 頁載入超時或失敗: {e}")
-                    continue
+                video_boxes = []
+                # 🎯 重試循環：若抓到 0 筆則重新整理並重試，最高 3 次
+                for attempt in range(1, 4):
+                    try:
+                        await page.goto(target_url, timeout=60000, wait_until="domcontentloaded")
+                        await page.wait_for_timeout(4000)
 
-                for _ in range(4):
-                    await page.evaluate("window.scrollTo(0, document.body.scrollHeight);")
-                    await page.wait_for_timeout(2000)
+                        for _ in range(4):
+                            await page.evaluate("window.scrollTo(0, document.body.scrollHeight);")
+                            await page.wait_for_timeout(1500)
 
-                soup = BeautifulSoup(await page.content(), 'html.parser')
-                video_boxes = soup.select('.video-img-box')
+                        soup = BeautifulSoup(await page.content(), 'html.parser')
+                        video_boxes = soup.select('.video-img-box')
+
+                        if len(video_boxes) > 0:
+                            break
+                        
+                        current_title = await page.title()
+                        print(f"  ⚠️ 第 {page_num} 頁抓到 0 筆 (標題: '{current_title}')，等待 4 秒後重試 ({attempt}/3)...")
+                        await page.wait_for_timeout(4000)
+                    except Exception as e:
+                        print(f"  ⚠️ 第 {page_num} 頁載入失敗 ({e})，正在重試...")
+                        await page.wait_for_timeout(4000)
+
                 print(f"  -> 第 {page_num} 頁總共抓到 {len(video_boxes)} 個 video-img-box")
 
                 page_links = []
@@ -379,7 +399,7 @@ async def run_scraper():
                 for idx, video_url in enumerate(page_links, 1):
                     try:
                         await page.goto(video_url, timeout=30000, wait_until="domcontentloaded")
-                        await page.wait_for_timeout(2000)
+                        await page.wait_for_timeout(1500)
 
                         detail_soup = BeautifulSoup(await page.content(), 'html.parser')
                         title_elem = detail_soup.select_one('h4') or detail_soup.select_one('h1') or detail_soup.find('title')
@@ -391,7 +411,6 @@ async def run_scraper():
                         parts = video_title.split()
                         actress_name = parts[-1].strip() if parts else "未知"
 
-                        # 🎯 抓取所有標籤連結以便在 Log 中印出檢查
                         tag_links = detail_soup.select('h5.tags.h6-md a[href]')
                         tags_list = []
                         has_target_tag = False
@@ -409,8 +428,7 @@ async def run_scraper():
 
                         tags_str = ", ".join(tags_list) if tags_list else "一般"
 
-                        # 🔍 除錯追蹤：印出前幾個影片的檢查結果，讓我們看看到底抓到什麼標籤
-                        print(f"  [檢查] {video_title[:20]}... | 標籤網址: {found_hrefs} | 符合: {has_target_tag}")
+                        print(f"  [檢查] {video_title[:20]}... | 標籤數: {len(found_hrefs)} | 符合: {has_target_tag}")
 
                         if has_target_tag:
                             if save_video(video_title, cover_image_url, tags_str, actress_name, video_url):
