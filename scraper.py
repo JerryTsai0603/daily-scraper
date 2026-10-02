@@ -349,9 +349,9 @@ async def run_scraper():
                 print(f"正在掃描第 {page_num}/2 頁: {target_url}")
 
                 try:
-                    await page.goto(target_url, timeout=60000)
-                    # 明確等待影片方塊元素載入，防止第一頁抓取不到方塊
-                    await page.wait_for_selector('.video-img-box', timeout=15000)
+                    # 🎯 改用更穩健的 domcontentloaded，並將逾時延長至 60 秒
+                    await page.goto(target_url, timeout=60000, wait_until="domcontentloaded")
+                    await page.wait_for_timeout(5000) # 給予充裕的時間讓 JavaScript 渲染影片方塊
                 except Exception as e:
                     print(f"⚠️ 第 {page_num} 頁載入超時或失敗: {e}")
                     continue
