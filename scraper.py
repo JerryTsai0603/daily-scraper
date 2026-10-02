@@ -345,12 +345,14 @@ async def run_scraper():
                 except Exception:
                     continue
 
-                for _ in range(2):
+                # 🎯 增加滾動次數與等待時間，確保頁面上的所有影片（包含 IPZZ-921 等）都被動態載入出來
+                for _ in range(4):
                     await page.evaluate("window.scrollTo(0, document.body.scrollHeight);")
-                    await page.wait_for_timeout(1500)
+                    await page.wait_for_timeout(2000)
 
                 soup = BeautifulSoup(await page.content(), 'html.parser')
                 video_boxes = soup.select('.video-img-box')
+                print(f"  -> 第 {page_num} 頁總共抓到 {len(video_boxes)} 個 video-img-box")
 
                 page_links = []
                 for box in video_boxes:
