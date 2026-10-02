@@ -60,7 +60,7 @@ def get_all_videos():
     return rows
 
 def sync_to_google_sheet(new_videos):
-    """智慧同步：自動比對 Google 試算表與資料庫，將遺漏的影片全部補齊（封面使用 =IMAGE() 顯示）"""
+    """智慧同步：自動比對 Google 試算表與資料庫，將遺漏的影片全部補齊（圖片使用 =IMAGE() 放大顯示）"""
     creds_json = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
     sheet_id = os.getenv("GOOGLE_SHEET_ID")
 
@@ -80,8 +80,10 @@ def sync_to_google_sheet(new_videos):
         if not existing_rows:
             sheet.append_row(["標題", "女優", "標籤", "影片連結", "封面圖片", "抓取時間"])
             existing_urls = set()
+            current_row_index = 2
         else:
             existing_urls = {row[3] for row in existing_rows[1:] if len(row) > 3}
+            current_row_index = len(existing_rows) + 1
 
         all_videos = get_all_videos()
         added_count = 0
@@ -93,10 +95,19 @@ def sync_to_google_sheet(new_videos):
                 sheet.append_row([
                     title, actress or "未知", tags or "", video_url, image_formula, created_at
                 ], value_input_option='USER_ENTERED')
+                
+                # 自動將寫入該筆資料的列高放大至 120 像素，讓 =IMAGE() 顯示的圖片變大
+                try:
+                    sheet.format(f"E{current_row_index}", {"textFormat": {"fontSize": 10}})
+                    sheet.update_row_height(current_row_index, 120)
+                except Exception:
+                    pass
+                
+                current_row_index += 1
                 added_count += 1
 
         if added_count > 0:
-            print(f"✅ 成功同步 {added_count} 筆影片至 Google 試算表！")
+            print(f"✅ 成功同步 {added_count} 筆影片至 Google 試算表，並已自動放大圖片儲存格！")
         else:
             print("✅ Google 試算表已包含所有資料庫影片，無需同步。")
     except Exception as e:
@@ -320,7 +331,6 @@ def send_email_report(new_videos):
 
 async def run_scraper():
     init_db()
-    # 🎯 嚴格指定的目標標籤路徑
     target_tags_paths = ["/tags/pantyhose/", "/tags/black-pantyhose/", "/tags/footjob/"]
     seen_urls = set()
     newly_added_videos = []
@@ -334,18 +344,18 @@ async def run_scraper():
             )
             page = await context.new_page()
 
-            # 🎯 掃描指定的中文字幕分類頁面前兩頁
             for page_num in range(1, 3):
                 target_url = "https://jable.tv/categories/chinese-subtitle/" if page_num == 1 else f"https://jable.tv/categories/chinese-subtitle/{page_num}/"
                 print(f"正在掃描第 {page_num}/2 頁: {target_url}")
 
                 try:
                     await page.goto(target_url, timeout=60000)
-                    await page.wait_for_timeout(3000)
-                except Exception:
+                    # 明確等待影片方塊元素載入，防止第一頁抓取不到方塊
+                    await page.wait_for_selector('.video-img-box', timeout=15000)
+                except Exception as e:
+                    print(f"⚠️ 第 {page_num} 頁載入超時或失敗: {e}")
                     continue
 
-                # 🎯 增加滾動次數與等待時間，確保頁面上的所有影片（包含 IPZZ-921 等）都被動態載入出來
                 for _ in range(4):
                     await page.evaluate("window.scrollTo(0, document.body.scrollHeight);")
                     await page.wait_for_timeout(2000)
@@ -365,12 +375,10 @@ async def run_scraper():
 
                 print(f"第 {page_num} 頁共收集到 {len(page_links)} 個不重複影片連結，準備逐一進入頁面檢查...")
 
-                # 🎯 確實點進去每個影片連結內部進行詳細檢查
                 for idx, video_url in enumerate(page_links, 1):
                     try:
-                        print(f"  -> 正在檢查 ({idx}/{len(page_links)}): {video_url}")
                         await page.goto(video_url, timeout=30000)
-                        await page.wait_for_timeout(2000)
+                        await page.wait_for_timeout(1500)
 
                         detail_soup = BeautifulSoup(await page.content(), 'html.parser')
                         title_elem = detail_soup.select_one('h4') or detail_soup.select_one('h1') or detail_soup.find('title')
@@ -379,11 +387,9 @@ async def run_scraper():
                         img_meta = detail_soup.select_one('meta[property="og:image"]')
                         cover_image_url = img_meta.get('content') if img_meta else ""
 
-                        # 🎯 女優名稱：取影片標題的最後一個文字段落
                         parts = video_title.split()
                         actress_name = parts[-1].strip() if parts else "未知"
 
-                        # 🎯 檢查 <h5 class="tags h6-md"> 裡面的所有 <a> 標籤連結
                         tag_links = detail_soup.select('h5.tags.h6-md a[href]')
                         tags_list = []
                         has_target_tag = False
@@ -394,13 +400,11 @@ async def run_scraper():
                             if t_text and "此作品曾在本站上傳" not in t_text:
                                 tags_list.append(t_text)
                             
-                            # 🎯 嚴格判讀：檢查超連結路徑是否包含指定的標籤
                             if any(path in href for path in target_tags_paths):
                                 has_target_tag = True
 
                         tags_str = ", ".join(tags_list) if tags_list else "一般"
 
-                        # 🎯 嚴格依據 if has_target_tag 條件判斷是否收錄
                         if has_target_tag:
                             if save_video(video_title, cover_image_url, tags_str, actress_name, video_url):
                                 newly_added_videos.append({
@@ -410,22 +414,14 @@ async def run_scraper():
                                     "actress": actress_name,
                                     "video_url": video_url
                                 })
-                                print(f"    🎯 [符合條件收錄] {video_title} (標籤: {tags_str})")
-                        else:
-                            print(f"    ⏭️ [略過] 不符合指定標籤")
-                    except Exception as e:
-                        print(f"    ❌ 存取失敗: {e}")
+                                print(f"  🎯 [符合條件收錄] {video_title} (標籤: {tags_str})")
+                    except Exception:
                         continue
 
             print(f"✅ 爬取結束！新收錄 {len(newly_added_videos)} 部影片")
             
-            # 同步至 Google 試算表（智慧比對補齊）
             sync_to_google_sheet(newly_added_videos)
-            
-            # 動態重新生成 index.html
             generate_index_html()
-            
-            # 發送郵件
             send_email_report(newly_added_videos)
 
         finally:
