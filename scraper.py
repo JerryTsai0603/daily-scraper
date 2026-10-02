@@ -351,7 +351,6 @@ async def run_scraper():
 
                 try:
                     await page.goto(target_url, timeout=60000, wait_until="domcontentloaded")
-                    # 增加穩定等待時間，確保頁面渲染完成
                     await page.wait_for_timeout(6000)
                 except Exception as e:
                     print(f"⚠️ 第 {page_num} 頁載入超時或失敗: {e}")
@@ -391,13 +390,16 @@ async def run_scraper():
                         parts = video_title.split()
                         actress_name = parts[-1].strip() if parts else "未知"
 
+                        # 🎯 抓取所有標籤連結以便在 Log 中印出檢查
                         tag_links = detail_soup.select('h5.tags.h6-md a[href]')
                         tags_list = []
                         has_target_tag = False
+                        found_hrefs = []
 
                         for a_elem in tag_links:
                             href = a_elem.get('href', '')
                             t_text = a_elem.text.strip()
+                            found_hrefs.append(href)
                             if t_text and "此作品曾在本站上傳" not in t_text:
                                 tags_list.append(t_text)
                             
@@ -405,6 +407,9 @@ async def run_scraper():
                                 has_target_tag = True
 
                         tags_str = ", ".join(tags_list) if tags_list else "一般"
+
+                        # 🔍 除錯追蹤：印出前幾個影片的檢查結果，讓我們看看到底抓到什麼標籤
+                        print(f"  [檢查] {video_title[:20]}... | 標籤網址: {found_hrefs} | 符合: {has_target_tag}")
 
                         if has_target_tag:
                             if save_video(video_title, cover_image_url, tags_str, actress_name, video_url):
@@ -416,7 +421,8 @@ async def run_scraper():
                                     "video_url": video_url
                                 })
                                 print(f"  🎯 [符合條件收錄] {video_title} (標籤: {tags_str})")
-                    except Exception:
+                    except Exception as e:
+                        print(f"  ❌ 檢查失敗 {video_url}: {e}")
                         continue
 
             print(f"✅ 爬取結束！新收錄 {len(newly_added_videos)} 部影片")
