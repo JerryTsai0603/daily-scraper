@@ -346,7 +346,8 @@ async def run_scraper():
             page = await context.new_page()
 
             for page_num in range(1, 3):
-                target_url = "https://jable.tv/categories/chinese-subtitle/" if page_num == 1 else f"https://jable.tv/categories/chinese-subtitle/{page_num}/"
+                # 🎯 將第一頁也改用明確的帶頁碼網址格式，避開根目錄的載入防護
+                target_url = f"https://jable.tv/categories/chinese-subtitle/{page_num}/"
                 print(f"正在掃描第 {page_num}/2 頁: {target_url}")
 
                 try:
